@@ -7,10 +7,7 @@ async function getChannels(): Promise<{
 	error?: string;
 }> {
 	try {
-		const baseUrl = process.env.NEXTAUTH_URL || 'http://localhost:3000';
-		console.log('Fetching channels from:', `${baseUrl}/api/channels`);
-		
-		const response = await fetch(`${baseUrl}/api/channels`, {
+		const response = await fetch(`/api/channels`, {
 			cache: 'no-store',
 			headers: {
 				'Content-Type': 'application/json',
