@@ -22,6 +22,7 @@ export const users = pgTable("users", {
 	bot: text("bot").default("false"),
 	username: text("username").notNull(),
 	displayName: text("display_name").notNull(),
+	nickname: text("nickname"), // Server-specific nickname
 	discriminator: text("discriminator").notNull(),
 	avatar: text("avatar"),
 	status: text("status"),
@@ -138,6 +139,7 @@ export async function createOrUpdateUser(userData: {
 	guildId: string;
 	username: string;
 	displayName: string;
+	nickname?: string;
 	discriminator: string;
 	avatar?: string;
 	roles?: string[];
@@ -151,6 +153,7 @@ export async function createOrUpdateUser(userData: {
 			.set({
 				username: userData.username,
 				displayName: userData.displayName,
+				nickname: userData.nickname,
 				discriminator: userData.discriminator,
 				avatar: userData.avatar,
 				roles: userData.roles,
@@ -169,6 +172,7 @@ export async function createOrUpdateUser(userData: {
 				guildId: userData.guildId,
 				username: userData.username,
 				displayName: userData.displayName,
+				nickname: userData.nickname,
 				discriminator: userData.discriminator,
 				avatar: userData.avatar,
 				roles: userData.roles,

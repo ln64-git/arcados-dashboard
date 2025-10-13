@@ -38,6 +38,7 @@ export async function GET(
 				id: users.discordId,
 				username: users.username,
 				displayName: users.displayName,
+				nickname: users.nickname,
 				avatar: users.avatar,
 				discriminator: users.discriminator,
 			})
@@ -46,9 +47,15 @@ export async function GET(
 
 		console.log("Found active members:", activeMembers.length);
 
+		// Map the results to use nickname if available, otherwise fall back to displayName
+		const membersWithNicknames = activeMembers.map((member) => ({
+			...member,
+			displayName: member.nickname || member.displayName, // Use nickname if available, otherwise displayName
+		}));
+
 		return NextResponse.json({
-			members: activeMembers,
-			totalMembers: activeMembers.length,
+			members: membersWithNicknames,
+			totalMembers: membersWithNicknames.length,
 		});
 	} catch (error) {
 		console.error("Error fetching channel members:", error);
