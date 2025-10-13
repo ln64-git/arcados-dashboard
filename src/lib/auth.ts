@@ -62,12 +62,12 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
 
 					// Create or update user in database
 					await createOrUpdateUser({
-						discordId: profile.id,
+						discordId: profile.id!,
 						guildId: guildId,
-						username: profile.username,
-						displayName: profile.global_name || profile.username,
+						username: profile.username!,
+						displayName: profile.global_name || profile.username!,
 						discriminator: profile.discriminator || "0",
-						avatar: profile.avatar,
+						avatar: profile.avatar || "",
 						roles: guildMember.roles || [],
 					});
 
