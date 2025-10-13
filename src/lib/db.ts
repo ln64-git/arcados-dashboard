@@ -44,6 +44,9 @@ export const users = pgTable("users", {
 	updatedAt: timestamp("updated_at").defaultNow(),
 });
 
+export type SelectUser = typeof users.$inferSelect;
+export const insertUserSchema = createInsertSchema(users);
+
 export const channels = pgTable("channels", {
 	id: serial("id").primaryKey(),
 	discordId: text("discord_id").notNull(),
