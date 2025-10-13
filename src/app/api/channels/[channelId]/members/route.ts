@@ -1,4 +1,6 @@
+import { inArray } from "drizzle-orm";
 import { NextResponse } from "next/server";
+import { db, getChannelByDiscordId, users } from "@/lib/db";
 
 export async function GET(
 	_request: Request,
@@ -6,55 +8,47 @@ export async function GET(
 ) {
 	try {
 		const { channelId } = await params;
-		const botToken = process.env.DISCORD_BOT_TOKEN;
-		const serverId = process.env.DISCORD_SERVER_ID;
-
 		console.log("Fetching members for channel:", channelId);
 
-		// Check if Discord credentials are configured
-		if (!botToken || !serverId) {
-			console.error("Missing Discord environment variables");
+		// Get channel from database
+		const channel = await getChannelByDiscordId(channelId);
+
+		if (!channel) {
 			return NextResponse.json(
 				{
 					members: [],
-					error:
-						"Discord credentials not configured. Please set DISCORD_BOT_TOKEN and DISCORD_SERVER_ID environment variables.",
+					totalMembers: 0,
+					error: "Channel not found",
 				},
 				{ status: 200 },
 			);
 		}
 
-		// Note: Discord REST API doesn't provide real-time voice state information
-		// Voice states are only available through Discord.js or Gateway API
-		// For now, we'll return mock data to demonstrate the UI
+		// If no active users, return empty
+		if (!channel.activeUserIds || channel.activeUserIds.length === 0) {
+			return NextResponse.json({
+				members: [],
+				totalMembers: 0,
+			});
+		}
 
-		console.log(
-			"Voice states not available via REST API - returning mock data for demonstration",
-		);
+		// Get user details for active users
+		const activeMembers = await db
+			.select({
+				id: users.discordId,
+				username: users.username,
+				displayName: users.displayName,
+				avatar: users.avatar,
+				discriminator: users.discriminator,
+			})
+			.from(users)
+			.where(inArray(users.discordId, channel.activeUserIds));
 
-		// Mock data for demonstration purposes
-		const mockMembers = [
-			{
-				id: "123456789012345678",
-				username: "john_doe",
-				displayName: "John Doe",
-				avatar: "a_1234567890abcdef",
-				discriminator: "1234",
-			},
-			{
-				id: "987654321098765432",
-				username: "jane_smith",
-				displayName: "Jane Smith",
-				avatar: null,
-				discriminator: "5678",
-			},
-		];
+		console.log("Found active members:", activeMembers.length);
 
 		return NextResponse.json({
-			members: mockMembers,
-			totalMembers: mockMembers.length,
-			error:
-				"Note: This is mock data. Real-time voice state information requires Discord.js or Gateway API integration.",
+			members: activeMembers,
+			totalMembers: activeMembers.length,
 		});
 	} catch (error) {
 		console.error("Error fetching channel members:", error);
