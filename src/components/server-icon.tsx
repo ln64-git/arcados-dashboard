@@ -18,13 +18,10 @@ export function ServerIcon({ className }: { className?: string }) {
   useEffect(() => {
     const fetchServerIcon = async () => {
       try {
-        console.log('🔹 Fetching server icon...');
         const response = await fetch('/api/server-icon');
-        console.log('🔹 Response status:', response.status);
         
         if (response.ok) {
           const data = await response.json();
-          console.log('🔹 Server data:', data);
           setServerData(data);
           setError(null);
         } else {
@@ -50,12 +47,10 @@ export function ServerIcon({ className }: { className?: string }) {
 
   // If loading or no icon URL, show nothing (no waiting icon)
   if (isLoading || !serverData?.iconUrl) {
-    console.log('🔹 Loading or no icon URL - showing transparent placeholder');
     return <div className={className} />;
   }
 
   // Show Discord icon with fade-in effect
-  console.log('🔹 Showing Discord icon:', serverData.iconUrl);
   return (
     // eslint-disable-next-line @next/next/no-img-element
     <img
@@ -65,11 +60,9 @@ export function ServerIcon({ className }: { className?: string }) {
       width={36}
       height={36}
       onClick={() => {
-        console.log('🔹 Opening Discord server:', serverData.serverId);
         window.open(`https://discord.com/channels/${serverData.serverId}`, '_blank');
       }}
       onLoad={() => {
-        console.log('🔹 Image loaded successfully');
         setImageLoaded(true);
       }}
       onError={(e) => {

@@ -3,12 +3,6 @@ import { Package, Package2, PanelLeft } from "lucide-react";
 import Link from "next/link";
 import { AuthGuard } from "@/components/auth-guard";
 import { ServerIcon } from "@/components/server-icon";
-import {
-	Breadcrumb,
-	BreadcrumbItem,
-	BreadcrumbList,
-	BreadcrumbPage,
-} from "@/components/ui/breadcrumb";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
@@ -18,6 +12,7 @@ import {
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { UserProfile } from "@/components/user-profile";
+import { DynamicBreadcrumb } from "./dynamic-breadcrumb";
 import { NavItem } from "./nav-item";
 import Providers from "./providers";
 
@@ -34,7 +29,7 @@ export default function DashboardLayout({
 					<div className="flex flex-col sm:gap-4 sm:py-4 sm:pl-14">
 						<header className="sticky top-0 z-30 flex h-14 items-center gap-4 border-b bg-background px-4 sm:static sm:h-auto sm:border-0 sm:bg-transparent sm:px-6">
 							<MobileNav />
-							<DashboardBreadcrumb />
+							<DynamicBreadcrumb />
 							<div className="ml-auto flex items-center gap-2">
 								<ThemeToggle />
 								<UserProfile />
@@ -60,7 +55,7 @@ function DesktopNav() {
 					<span className="sr-only">Arcados</span>
 				</div>
 
-				<NavItem href="/" label="Products">
+				<NavItem href="/" label="Channels">
 					<Package className="h-5 w-5" />
 				</NavItem>
 			</nav>
@@ -96,22 +91,10 @@ function MobileNav() {
 						className="flex items-center gap-4 px-2.5 text-foreground"
 					>
 						<Package className="h-5 w-5" />
-						Products
+						Channels
 					</Link>
 				</nav>
 			</SheetContent>
 		</Sheet>
-	);
-}
-
-function DashboardBreadcrumb() {
-	return (
-		<Breadcrumb className="hidden md:flex">
-			<BreadcrumbList>
-				<BreadcrumbItem>
-					<BreadcrumbPage>Products</BreadcrumbPage>
-				</BreadcrumbItem>
-			</BreadcrumbList>
-		</Breadcrumb>
 	);
 }

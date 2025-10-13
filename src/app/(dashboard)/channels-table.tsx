@@ -28,6 +28,7 @@ export interface DiscordChannel {
 	bitrate: number;
 	parentId: string | null;
 	permissionOverwrites: unknown[];
+	memberCount?: number; // Add memberCount from database
 }
 
 export function ChannelsTable({
@@ -65,9 +66,6 @@ export function ChannelsTable({
 						<TableRow>
 							<TableHead>Channel Name</TableHead>
 							<TableHead>Users</TableHead>
-							<TableHead>
-								<span className="sr-only">Actions</span>
-							</TableHead>
 						</TableRow>
 					</TableHeader>
 					<TableBody>

@@ -1,5 +1,3 @@
-import { PlusCircle } from 'lucide-react';
-import { Button } from '@/components/ui/button';
 import type { DiscordChannel } from './channels-table';
 import { ChannelsTable } from './channels-table';
 
@@ -19,14 +17,11 @@ async function getChannels(): Promise<{
 			},
 		});
 		
-		console.log('API Response status:', response.status);
-		
 		if (!response.ok) {
 			throw new Error(`API request failed: ${response.status}`);
 		}
 		
 		const data = await response.json();
-		console.log('API Response data:', data);
 		
 		return {
 			channels: data.channels || [],
@@ -74,10 +69,6 @@ export default async function ChannelsPage(props: {
 						</p>
 					)}
 				</div>
-				<Button className="gap-2">
-					<PlusCircle className="h-4 w-4" />
-					Add Channel
-				</Button>
 			</div>
 			<ChannelsTable
 				channels={channels}

@@ -13,11 +13,8 @@ export function AuthGuard({ children }: AuthGuardProps) {
 	const router = useRouter();
 
 	useEffect(() => {
-		console.log("🔹 AuthGuard: Status:", status);
-		console.log("🔹 AuthGuard: Session:", session ? "exists" : "null");
 
 		if (status === "loading") {
-			console.log("🔹 AuthGuard: Still loading...");
 			return; // Still loading
 		}
 
@@ -27,7 +24,6 @@ export function AuthGuard({ children }: AuthGuardProps) {
 			return;
 		}
 
-		console.log("🔹 AuthGuard: Authenticated, allowing access");
 	}, [status, session, router]);
 
 	// Show loading while checking authentication
