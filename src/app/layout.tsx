@@ -1,11 +1,13 @@
 import './globals.css';
 
 import { Analytics } from '@vercel/analytics/react';
+import Script from 'next/script';
+import { useId } from 'react';
 
 export const metadata = {
-  title: 'Next.js App Router + NextAuth + Tailwind CSS',
+  title: 'Arcados Dashboard',
   description:
-    'A user admin dashboard configured with Next.js, Postgres, NextAuth, Tailwind CSS, TypeScript, and Prettier.'
+    'hey its me wink'
 };
 
 export default function RootLayout({
@@ -13,26 +15,22 @@ export default function RootLayout({
 }: {
   children: React.ReactNode;
 }) {
+  const themeScriptId = useId();
+  
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
-        {/* eslint-disable-next-line react/no-danger */}
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `
-              (function() {
-                const savedTheme = localStorage.getItem('theme');
-                const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-                
-                if (savedTheme === 'light' || (!savedTheme && !prefersDark)) {
-                  document.documentElement.classList.remove('dark');
-                } else {
-                  document.documentElement.classList.add('dark');
-                }
-              })();
-            `,
-          }}
-        />
+        <Script id={themeScriptId} strategy="beforeInteractive">{`
+          (function() {
+            const savedTheme = localStorage.getItem('theme');
+            const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+            if (savedTheme === 'light' || (!savedTheme && !prefersDark)) {
+              document.documentElement.classList.remove('dark');
+            } else {
+              document.documentElement.classList.add('dark');
+            }
+          })();
+        `}</Script>
       </head>
       <body className="flex min-h-screen w-full flex-col">{children}</body>
       <Analytics />
