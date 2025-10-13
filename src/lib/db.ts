@@ -20,12 +20,12 @@ export const statusEnum = pgEnum("status", ["active", "inactive", "archived"]);
 
 export const users = pgTable("users", {
 	id: serial("id").primaryKey(),
-	discordId: text("discord_id", { length: 20 }).notNull(),
-	guildId: text("guild_id", { length: 20 }).notNull(),
+	discordId: text("discord_id").notNull(),
+	guildId: text("guild_id").notNull(),
 	bot: text("bot").default("false"),
-	username: text("username", { length: 100 }).notNull(),
-	displayName: text("display_name", { length: 100 }).notNull(),
-	discriminator: text("discriminator", { length: 4 }).notNull(),
+	username: text("username").notNull(),
+	displayName: text("display_name").notNull(),
+	discriminator: text("discriminator").notNull(),
 	avatar: text("avatar"),
 	status: text("status"),
 	roles: text("roles").array(),
@@ -35,8 +35,8 @@ export const users = pgTable("users", {
 	usernameHistory: text("username_history").array(),
 	displayNameHistory: text("display_name_history").array(),
 	statusHistory: text("status_history"), // jsonb
-	emoji: text("emoji", { length: 10 }),
-	title: text("title", { length: 200 }),
+	emoji: text("emoji"),
+	title: text("title"),
 	summary: text("summary"),
 	keywords: text("keywords").array(),
 	notes: text("notes").array(),
