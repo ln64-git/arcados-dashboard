@@ -1,3 +1,4 @@
+import { inArray } from "drizzle-orm";
 import { Users, Volume2 } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -8,6 +9,7 @@ import {
 	CardHeader,
 	CardTitle,
 } from "@/components/ui/card";
+import { db, getChannelByDiscordId, users } from "@/lib/db";
 import type { DiscordChannel } from "../../channels-table";
 
 interface ChannelMember {
@@ -23,26 +25,33 @@ async function getChannelDetails(channelId: string): Promise<{
 	error?: string;
 }> {
 	try {
-		const baseUrl = process.env.NEXTAUTH_URL || 'http://localhost:3000';
-		const response = await fetch(`${baseUrl}/api/channels`, {
-			cache: "no-store",
-			headers: {
-				"Content-Type": "application/json",
-			},
-		});
+		console.log("Fetching channel details from database:", channelId);
 
-		if (!response.ok) {
-			throw new Error(`API request failed: ${response.status}`);
+		// Fetch channel directly from database
+		const dbChannel = await getChannelByDiscordId(channelId);
+
+		if (!dbChannel) {
+			return {
+				channel: null,
+				error: "Channel not found",
+			};
 		}
 
-		const data = await response.json();
-		const channel = data.channels.find(
-			(ch: DiscordChannel) => ch.id === channelId,
-		);
+		// Map database fields to DiscordChannel interface format
+		const channel: DiscordChannel = {
+			id: dbChannel.discordId,
+			name: dbChannel.channelName,
+			type: 2, // Voice channel type
+			position: dbChannel.position, // Use actual position from DB
+			userLimit: 0, // Default unlimited since not in DB
+			bitrate: 64000, // Default bitrate since not in DB
+			parentId: null, // Default no parent since not in DB
+			permissionOverwrites: [], // Default empty since not in DB
+			memberCount: dbChannel.memberCount || 0, // Use actual member count from DB
+		};
 
 		return {
-			channel: channel || null,
-			error: channel ? undefined : "Channel not found",
+			channel,
 		};
 	} catch (error) {
 		console.error("Error fetching channel details:", error);
@@ -59,26 +68,51 @@ async function getChannelMembers(channelId: string): Promise<{
 	error?: string;
 }> {
 	try {
-		const baseUrl = process.env.NEXTAUTH_URL || 'http://localhost:3000';
-		const response = await fetch(
-			`${baseUrl}/api/channels/${channelId}/members`,
-			{
-				cache: "no-store",
-				headers: {
-					"Content-Type": "application/json",
-				},
-			},
-		);
+		console.log("Fetching members for channel:", channelId);
 
-		if (!response.ok) {
-			throw new Error(`API request failed: ${response.status}`);
+		// Get channel from database
+		const channel = await getChannelByDiscordId(channelId);
+
+		if (!channel) {
+			return {
+				members: [],
+				totalMembers: 0,
+				error: "Channel not found",
+			};
 		}
 
-		const data = await response.json();
+		// If no active users, return empty
+		if (!channel.activeUserIds || channel.activeUserIds.length === 0) {
+			return {
+				members: [],
+				totalMembers: 0,
+			};
+		}
+
+		// Get user details for active users
+		const activeMembers = await db
+			.select({
+				id: users.discordId,
+				username: users.username,
+				displayName: users.displayName,
+				nickname: users.nickname,
+				avatar: users.avatar,
+				discriminator: users.discriminator,
+			})
+			.from(users)
+			.where(inArray(users.discordId, channel.activeUserIds));
+
+		console.log("Found active members:", activeMembers.length);
+
+		// Map the results to use nickname if available, otherwise fall back to displayName
+		const membersWithNicknames = activeMembers.map((member) => ({
+			...member,
+			displayName: member.nickname || member.displayName, // Use nickname if available, otherwise displayName
+		}));
+
 		return {
-			members: data.members || [],
-			totalMembers: data.totalMembers || 0,
-			error: data.error,
+			members: membersWithNicknames,
+			totalMembers: membersWithNicknames.length,
 		};
 	} catch (error) {
 		console.error("Error fetching channel members:", error);

@@ -1,5 +1,6 @@
-import type { DiscordChannel } from './channels-table';
-import { ChannelsTable } from './channels-table';
+import { getAllChannels } from "@/lib/db";
+import type { DiscordChannel } from "./channels-table";
+import { ChannelsTable } from "./channels-table";
 
 async function getChannels(): Promise<{
 	channels: DiscordChannel[];
@@ -7,30 +8,37 @@ async function getChannels(): Promise<{
 	error?: string;
 }> {
 	try {
-		const response = await fetch(`/api/channels`, {
-			cache: 'no-store',
-			headers: {
-				'Content-Type': 'application/json',
-			},
-		});
-		
-		if (!response.ok) {
-			throw new Error(`API request failed: ${response.status}`);
-		}
-		
-		const data = await response.json();
-		
+		console.log("Fetching channels from database...");
+
+		// Fetch channels directly from database instead of making HTTP request
+		const dbChannels = await getAllChannels();
+		console.log("Fetched channels count:", dbChannels.length);
+
+		// Map database fields to DiscordChannel interface format
+		const formattedChannels = dbChannels.map((channel) => ({
+			id: channel.discordId,
+			name: channel.channelName,
+			type: 2, // Voice channel type
+			position: channel.position, // Use actual position from DB
+			userLimit: 0, // Default unlimited since not in DB
+			bitrate: 64000, // Default bitrate since not in DB
+			parentId: null, // Default no parent since not in DB
+			permissionOverwrites: [], // Default empty since not in DB
+			memberCount: channel.memberCount || 0, // Use actual member count from DB
+		}));
+
+		console.log("Formatted channels count:", formattedChannels.length);
+
 		return {
-			channels: data.channels || [],
-			totalChannels: data.totalChannels || 0,
-			error: data.error,
+			channels: formattedChannels,
+			totalChannels: formattedChannels.length,
 		};
 	} catch (error) {
-		console.error('Error fetching channels:', error);
+		console.error("Error fetching channels from database:", error);
 		return {
 			channels: [],
 			totalChannels: 0,
-			error: `Failed to fetch channels: ${error instanceof Error ? error.message : 'Unknown error'}`,
+			error: `Failed to fetch channels: ${error instanceof Error ? error.message : "Unknown error"}`,
 		};
 	}
 }
@@ -51,9 +59,7 @@ export default async function ChannelsPage(props: {
 						View and manage Discord voice channels in your server.
 					</p>
 					{error && (
-						<p className="text-sm text-red-600 mt-2">
-							🔸 Error: {error}
-						</p>
+						<p className="text-sm text-red-600 mt-2">🔸 Error: {error}</p>
 					)}
 					{!error && channels.length === 0 && (
 						<p className="text-sm text-amber-600 mt-2">
@@ -62,7 +68,8 @@ export default async function ChannelsPage(props: {
 					)}
 					{!error && channels.length > 0 && (
 						<p className="text-sm text-green-600 mt-2">
-							🔹 Found {totalChannels} voice channel{totalChannels !== 1 ? 's' : ''} from Discord
+							🔹 Found {totalChannels} voice channel
+							{totalChannels !== 1 ? "s" : ""} from Discord
 						</p>
 					)}
 				</div>
