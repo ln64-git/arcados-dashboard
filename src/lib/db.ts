@@ -1,7 +1,7 @@
 import "server-only";
 
 import { neon } from "@neondatabase/serverless";
-import { asc, eq } from "drizzle-orm";
+import { and, asc, eq, ne, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/neon-http";
 import {
 	boolean,
@@ -96,13 +96,52 @@ export async function createOrUpdateChannel(channelData: {
 }): Promise<SelectChannel> {
 	const existingChannel = await getChannelByDiscordId(channelData.discordId);
 
+	// Ensure position is unique by finding the next available position if there's a conflict
+	let finalPosition = channelData.position;
+	if (existingChannel) {
+		// For updates, check if the new position conflicts with another channel
+		const conflictingChannel = await db
+			.select()
+			.from(channels)
+			.where(
+				and(
+					eq(channels.position, channelData.position),
+					ne(channels.discordId, channelData.discordId),
+				),
+			)
+			.limit(1);
+
+		if (conflictingChannel.length > 0) {
+			// Find the next available position
+			const maxPosition = await db
+				.select({ maxPos: sql<number>`MAX(${channels.position})` })
+				.from(channels);
+			finalPosition = (maxPosition[0]?.maxPos ?? -1) + 1;
+		}
+	} else {
+		// For new channels, check if position is already taken
+		const conflictingChannel = await db
+			.select()
+			.from(channels)
+			.where(eq(channels.position, channelData.position))
+			.limit(1);
+
+		if (conflictingChannel.length > 0) {
+			// Find the next available position
+			const maxPosition = await db
+				.select({ maxPos: sql<number>`MAX(${channels.position})` })
+				.from(channels);
+			finalPosition = (maxPosition[0]?.maxPos ?? -1) + 1;
+		}
+	}
+
 	if (existingChannel) {
 		// Update existing channel
 		const [updatedChannel] = await db
 			.update(channels)
 			.set({
 				channelName: channelData.channelName,
-				position: channelData.position,
+				position: finalPosition,
 				status: channelData.status ?? null,
 				isActive: channelData.isActive,
 				activeUserIds: channelData.activeUserIds,
@@ -120,7 +159,7 @@ export async function createOrUpdateChannel(channelData: {
 				discordId: channelData.discordId,
 				guildId: channelData.guildId,
 				channelName: channelData.channelName,
-				position: channelData.position,
+				position: finalPosition,
 				status: channelData.status ?? null,
 				isActive: channelData.isActive,
 				activeUserIds: channelData.activeUserIds,
