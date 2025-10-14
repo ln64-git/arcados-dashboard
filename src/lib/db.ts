@@ -40,6 +40,7 @@ export const users = pgTable("users", {
 	notes: text("notes").array(),
 	relationships: text("relationships"), // jsonb
 	modPreferences: text("mod_preferences"), // jsonb
+	voiceInteractions: text("voice_interactions"), // jsonb
 	createdAt: timestamp("created_at").defaultNow(),
 	updatedAt: timestamp("updated_at").defaultNow(),
 });
