@@ -22,11 +22,11 @@ export function DynamicBreadcrumb() {
 	const [channelName, setChannelName] = useState<string | null>(null);
 	const [loading, setLoading] = useState(false);
 
-	// Parse the pathname to generate breadcrumbs
-	const pathSegments = pathname.split("/").filter(Boolean);
-
 	// Fetch channel name if we're on a channel page
 	useEffect(() => {
+		// Parse the pathname to generate breadcrumbs
+		const pathSegments = pathname.split("/").filter(Boolean);
+		
 		if (pathSegments[0] === "channels" && pathSegments[1]) {
 			setLoading(true);
 			fetchChannelName(pathSegments[1])
@@ -43,10 +43,11 @@ export function DynamicBreadcrumb() {
 		} else {
 			setChannelName(null);
 		}
-	}, [pathSegments]);
+	}, [pathname]);
 
 	// Build breadcrumb items
 	const breadcrumbItems: Array<{ label: string; href: string; isLast?: boolean }> = [];
+	const pathSegments = pathname.split("/").filter(Boolean);
 
 	// Always start with Dashboard
 	breadcrumbItems.push({

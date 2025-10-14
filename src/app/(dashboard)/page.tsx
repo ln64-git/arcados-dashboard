@@ -1,6 +1,10 @@
+import { unstable_noStore as noStore } from "next/cache";
 import { getAllChannels } from "@/lib/db";
+import { ChannelsLive } from "./channels-live";
 import type { DiscordChannel } from "./channels-table";
-import { ChannelsTable } from "./channels-table";
+import { SSERefresherChannels } from "./sse-refresher-channels";
+
+export const dynamic = "force-dynamic";
 
 async function getChannels(): Promise<{
 	channels: DiscordChannel[];
@@ -8,6 +12,7 @@ async function getChannels(): Promise<{
 	error?: string;
 }> {
 	try {
+		noStore();
 		console.log("Fetching channels from database...");
 
 		// Fetch channels directly from database instead of making HTTP request
@@ -44,15 +49,12 @@ async function getChannels(): Promise<{
 	}
 }
 
-export default async function ChannelsPage(props: {
-	searchParams: Promise<{ q: string; offset: string }>;
-}) {
-	const searchParams = await props.searchParams;
-	const offset = searchParams.offset ?? 0;
+export default async function ChannelsPage() {
 	const { channels, totalChannels, error } = await getChannels();
 
 	return (
 		<div className="space-y-4">
+			<SSERefresherChannels />
 			<div className="flex items-center justify-between">
 				<div>
 					<h1 className="text-3xl font-bold tracking-tight">Channels</h1>
@@ -75,11 +77,7 @@ export default async function ChannelsPage(props: {
 					)}
 				</div>
 			</div>
-			<ChannelsTable
-				channels={channels}
-				offset={Number(offset)}
-				totalChannels={totalChannels}
-			/>
+			<ChannelsLive initialChannels={channels} initialTotal={totalChannels} />
 		</div>
 	);
 }

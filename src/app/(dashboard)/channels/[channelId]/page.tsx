@@ -1,18 +1,16 @@
 import { inArray, sql } from "drizzle-orm";
 import { Users, Volume2 } from "lucide-react";
+import { unstable_noStore as noStore } from "next/cache";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
-import {
-	Card,
-	CardContent,
-	CardDescription,
-	CardHeader,
-	CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { db, getChannelByDiscordId, users } from "@/lib/db";
 import type { DiscordChannel } from "../../channels-table";
 // eslint-disable-next-line import/no-unresolved
 import { DurationTicker } from "./duration-ticker";
+import { SSERefresher } from "./sse-refresher";
+
+export const dynamic = "force-dynamic";
 
 interface ChannelMember {
 	id: string;
@@ -28,6 +26,7 @@ async function getChannelDetails(channelId: string): Promise<{
 	channel: DiscordChannel | null;
 	error?: string;
 }> {
+	noStore();
 	try {
 		console.log("Fetching channel details from database:", channelId);
 
@@ -72,6 +71,7 @@ async function getChannelMembers(channelId: string): Promise<{
 	totalMembers: number;
 	error?: string;
 }> {
+	noStore();
 	try {
 		console.log("Fetching members for channel:", channelId);
 
@@ -96,13 +96,16 @@ async function getChannelMembers(channelId: string): Promise<{
 
 		// Prefer precise joined_at from voice_channel_sessions if available
 		const sessionsByUser = new Map<string, string>();
-        try {
-            const sessions = await db.execute(
-                sql`SELECT user_id, joined_at FROM voice_channel_sessions WHERE channel_id = ${channelId} AND is_active = true`,
-            );
-            const rows = (sessions as unknown as {
-                rows?: Array<{ user_id: string; joined_at: string }>;
-            }).rows || [];
+		try {
+			const sessions = await db.execute(
+				sql`SELECT user_id, joined_at FROM voice_channel_sessions WHERE channel_id = ${channelId} AND is_active = true`,
+			);
+			const rows =
+				(
+					sessions as unknown as {
+						rows?: Array<{ user_id: string; joined_at: string }>;
+					}
+				).rows || [];
 			for (const r of rows) {
 				if (channel.activeUserIds.includes(r.user_id))
 					sessionsByUser.set(r.user_id, r.joined_at);
@@ -126,12 +129,12 @@ async function getChannelMembers(channelId: string): Promise<{
 		console.log("Found active members:", activeMembersRaw.length);
 
 		const now = Date.now();
-        const membersWithDurations = activeMembersRaw.map((member) => {
+		const membersWithDurations = activeMembersRaw.map((member) => {
 			let joinedAt: string | null = sessionsByUser.get(member.id) || null;
 			if (!joinedAt) {
 				try {
-                    if (member.voiceInteractions) {
-                        const interactions = JSON.parse(member.voiceInteractions) as Array<{
+					if (member.voiceInteractions) {
+						const interactions = JSON.parse(member.voiceInteractions) as Array<{
 							channelId?: string;
 							joinedAt?: string;
 							leftAt?: string;
@@ -211,6 +214,7 @@ export default async function ChannelPage({
 
 	return (
 		<div className="space-y-4">
+			<SSERefresher channelId={channel.id} />
 			<div className="flex items-center justify-between gap-4">
 				<h1 className="text-3xl font-bold tracking-tight flex items-center gap-2">
 					<Volume2 className="h-8 w-8 text-muted-foreground" />
@@ -220,12 +224,14 @@ export default async function ChannelPage({
 					<Badge variant="secondary">{maxUsers}</Badge>
 				</div>
 			</div>
-	
+
 			{channel.status && (
 				<p className="text-muted-foreground">{channel.status}</p>
 			)}
-			{membersError && <p className="text-sm text-red-600 mt-2">🔸 Error: {membersError}</p>}
-	
+			{membersError && (
+				<p className="text-sm text-red-600 mt-2">🔸 Error: {membersError}</p>
+			)}
+
 			<Card className="border-0 shadow-none">
 				<CardHeader>
 					<CardTitle className="flex items-center gap-2">
@@ -237,7 +243,9 @@ export default async function ChannelPage({
 					{members.length === 0 ? (
 						<div className="text-center py-8">
 							<Users className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-							<p className="text-muted-foreground">No users currently in this channel</p>
+							<p className="text-muted-foreground">
+								No users currently in this channel
+							</p>
 						</div>
 					) : (
 						<div className="space-y-3">
@@ -245,15 +253,25 @@ export default async function ChannelPage({
 								<div key={member.id} className="flex items-center gap-3">
 									<Avatar className="h-8 w-8">
 										<AvatarImage
-											src={member.avatar ? `https://cdn.discordapp.com/avatars/${member.id}/${member.avatar}.png` : undefined}
+											src={
+												member.avatar
+													? `https://cdn.discordapp.com/avatars/${member.id}/${member.avatar}.png`
+													: undefined
+											}
 											alt={member.displayName}
 										/>
-										<AvatarFallback>{member.displayName.charAt(0).toUpperCase()}</AvatarFallback>
+										<AvatarFallback>
+											{member.displayName.charAt(0).toUpperCase()}
+										</AvatarFallback>
 									</Avatar>
 									<div className="flex-1 min-w-0">
-										<p className="text-sm font-medium truncate">{member.displayName}</p>
+										<p className="text-sm font-medium truncate">
+											{member.displayName}
+										</p>
 										<div className="flex items-center gap-2">
-											<p className="text-xs text-muted-foreground truncate">@{member.username}</p>
+											<p className="text-xs text-muted-foreground truncate">
+												@{member.username}
+											</p>
 											<DurationTicker start={member.joinedAt} />
 										</div>
 									</div>
@@ -264,5 +282,5 @@ export default async function ChannelPage({
 				</CardContent>
 			</Card>
 		</div>
-	)
+	);
 }
