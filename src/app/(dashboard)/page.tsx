@@ -18,6 +18,7 @@ async function getChannels(): Promise<{
 		const formattedChannels = dbChannels.map((channel) => ({
 			id: channel.discordId,
 			name: channel.channelName,
+			status: channel.status ?? null,
 			type: 2, // Voice channel type
 			position: channel.position, // Use actual position from DB
 			userLimit: 0, // Default unlimited since not in DB

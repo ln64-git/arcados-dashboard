@@ -54,6 +54,7 @@ export const channels = pgTable("channels", {
 	guildId: text("guild_id").notNull(),
 	channelName: text("channel_name").notNull(),
 	position: integer("position").notNull(),
+	status: text("status"),
 	isActive: boolean("is_active"),
 	activeUserIds: text("active_user_ids").array(),
 	memberCount: integer("member_count"),
@@ -88,6 +89,7 @@ export async function createOrUpdateChannel(channelData: {
 	guildId: string;
 	channelName: string;
 	position: number;
+	status?: string | null;
 	isActive?: boolean;
 	activeUserIds?: string[];
 	memberCount?: number;
@@ -101,6 +103,7 @@ export async function createOrUpdateChannel(channelData: {
 			.set({
 				channelName: channelData.channelName,
 				position: channelData.position,
+				status: channelData.status ?? null,
 				isActive: channelData.isActive,
 				activeUserIds: channelData.activeUserIds,
 				memberCount: channelData.memberCount,
@@ -118,6 +121,7 @@ export async function createOrUpdateChannel(channelData: {
 				guildId: channelData.guildId,
 				channelName: channelData.channelName,
 				position: channelData.position,
+				status: channelData.status ?? null,
 				isActive: channelData.isActive,
 				activeUserIds: channelData.activeUserIds,
 				memberCount: channelData.memberCount,

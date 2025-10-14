@@ -24,6 +24,7 @@ export interface DiscordChannel {
 	name: string;
 	type: number;
 	position: number;
+    status?: string | null;
 	userLimit: number;
 	bitrate: number;
 	parentId: string | null;
