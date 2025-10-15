@@ -5,50 +5,77 @@ import { useEffect, useRef } from "react";
 
 export function SSERefresherChannels() {
 	const router = useRouter();
-	const pollTimerRef = useRef<number | null>(null);
 	const esRef = useRef<EventSource | null>(null);
+	const reconnectTimeoutRef = useRef<number | null>(null);
 
 	useEffect(() => {
-		function startPolling() {
-			if (pollTimerRef.current != null) return;
-			console.log("Starting polling for realtime updates");
+		function connectSSE() {
+			if (esRef.current?.readyState === EventSource.OPEN) return;
 			
-			let lastDataHash = '';
+			console.log("🔹 Connecting to SSE for realtime updates");
 			
-			pollTimerRef.current = window.setInterval(() => {
-				fetch('/api/channels')
-					.then((r) => r.json())
-					.then((json) => {
-						// Only update if data has actually changed
-						const currentDataHash = JSON.stringify(json);
-						if (currentDataHash !== lastDataHash) {
-							console.log("Data changed, updating UI");
-							lastDataHash = currentDataHash;
-							const evt = new CustomEvent('channels:update', { detail: json });
-							window.dispatchEvent(evt);
-						}
-					})
-					.catch((err) => {
-						console.error("Polling error:", err);
-						router.refresh();
-					});
-			}, 500); // Poll every 500ms for ultra-realtime updates
+			const eventSource = new EventSource('/api/realtime?channel=channels_update');
+			esRef.current = eventSource;
+			
+			eventSource.onopen = () => {
+				console.log("🔹 SSE connection opened");
+				// Clear any pending reconnection
+				if (reconnectTimeoutRef.current) {
+					clearTimeout(reconnectTimeoutRef.current);
+					reconnectTimeoutRef.current = null;
+				}
+			};
+			
+			eventSource.onmessage = (event) => {
+				try {
+					const data = JSON.parse(event.data);
+					console.log("🔹 SSE message received:", data.type);
+					
+					if (data.type === 'channels_update' && data.data) {
+						console.log("🔹 Channels data updated, dispatching event");
+						const evt = new CustomEvent('channels:update', { detail: data.data });
+						window.dispatchEvent(evt);
+					} else if (data.type === 'heartbeat') {
+						console.log("🔹 SSE heartbeat received");
+					} else if (data.type === 'connected') {
+						console.log("🔹 SSE connected to channel:", data.channel);
+					}
+				} catch (error) {
+					console.error("🔸 Error parsing SSE message:", error);
+				}
+			};
+			
+			eventSource.onerror = (error) => {
+				console.error("🔸 SSE connection error:", error);
+				eventSource.close();
+				
+				// Reconnect after 3 seconds
+				reconnectTimeoutRef.current = window.setTimeout(() => {
+					console.log("🔹 Attempting to reconnect SSE...");
+					connectSSE();
+				}, 3000);
+			};
 		}
 
-		function stopPolling() {
-			if (pollTimerRef.current != null) {
-				window.clearInterval(pollTimerRef.current);
-				pollTimerRef.current = null;
+		function disconnectSSE() {
+			if (esRef.current) {
+				console.log("🔹 Disconnecting SSE");
+				esRef.current.close();
+				esRef.current = null;
+			}
+			if (reconnectTimeoutRef.current) {
+				clearTimeout(reconnectTimeoutRef.current);
+				reconnectTimeoutRef.current = null;
 			}
 		}
 
-		// Start polling immediately - SSE approach has connection pooling issues
-		startPolling();
+		// Start SSE connection
+		connectSSE();
 		
 		return () => {
-			stopPolling();
+			disconnectSSE();
 		};
-	}, [router]);
+	}, []);
 
 	return null;
 }

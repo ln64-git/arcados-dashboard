@@ -9,7 +9,7 @@ BEGIN
     'table', TG_TABLE_NAME,
     'updatedAt', now()
   )::text);
-  RETURN NEW;
+  RETURN COALESCE(NEW, OLD);
 END; $$ LANGUAGE plpgsql;
 
 DROP TRIGGER IF EXISTS channels_update_trigger ON channels;
@@ -21,13 +21,13 @@ FOR EACH ROW EXECUTE FUNCTION notify_channels_update();
 CREATE OR REPLACE FUNCTION notify_voice_sessions_update() RETURNS trigger AS $$
 BEGIN
   PERFORM pg_notify('voice_sessions_update', json_build_object(
-    'channelId', NEW.channel_id,
-    'userId', NEW.user_id,
+    'channelId', COALESCE(NEW.channel_id, OLD.channel_id),
+    'userId', COALESCE(NEW.user_id, OLD.user_id),
     'event', TG_OP,
     'table', TG_TABLE_NAME,
     'updatedAt', now()
   )::text);
-  RETURN NEW;
+  RETURN COALESCE(NEW, OLD);
 END; $$ LANGUAGE plpgsql;
 
 DO $$ BEGIN
