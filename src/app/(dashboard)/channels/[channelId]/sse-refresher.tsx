@@ -3,22 +3,27 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useRef } from "react";
 
-export function SSERefresher({ channelId }: { channelId: string }) {
+export function WSRefresher({ channelId }: { channelId: string }) {
 	const router = useRouter();
-	const esRef = useRef<EventSource | null>(null);
+	const wsRef = useRef<WebSocket | null>(null);
 	const reconnectTimeoutRef = useRef<number | null>(null);
 
 	useEffect(() => {
-		function connectSSE() {
-			if (esRef.current?.readyState === EventSource.OPEN) return;
+		function connectWS() {
+			if (wsRef.current?.readyState === WebSocket.OPEN) return;
 			
-			console.log("🔹 Connecting to SSE for channel updates:", channelId);
+			console.log("🔹 Connecting to WebSocket for channel updates:", channelId);
 			
-			const eventSource = new EventSource(`/api/realtime?channel=voice_sessions_update`);
-			esRef.current = eventSource;
+			// Determine WebSocket URL based on environment
+			const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+			const host = window.location.host;
+			const wsUrl = `${protocol}//${host}/api/realtime?channel=voice_sessions_update`;
 			
-			eventSource.onopen = () => {
-				console.log("🔹 Channel SSE connection opened");
+			const ws = new WebSocket(wsUrl);
+			wsRef.current = ws;
+			
+			ws.onopen = () => {
+				console.log("🔹 Channel WebSocket connection opened");
 				// Clear any pending reconnection
 				if (reconnectTimeoutRef.current) {
 					clearTimeout(reconnectTimeoutRef.current);
@@ -26,10 +31,10 @@ export function SSERefresher({ channelId }: { channelId: string }) {
 				}
 			};
 			
-			eventSource.onmessage = (event) => {
+			ws.onmessage = (event) => {
 				try {
 					const data = JSON.parse(event.data);
-					console.log("🔹 Channel SSE message received:", data.type);
+					console.log("🔹 Channel WebSocket message received:", data.type);
 					
 					if (data.type === 'voice_sessions_update' && data.data) {
 						// Check if this update is for our channel
@@ -38,32 +43,37 @@ export function SSERefresher({ channelId }: { channelId: string }) {
 							router.refresh();
 						}
 					} else if (data.type === 'heartbeat') {
-						console.log("🔹 Channel SSE heartbeat received");
+						console.log("🔹 Channel WebSocket heartbeat received");
 					} else if (data.type === 'connected') {
-						console.log("🔹 Channel SSE connected to channel:", data.channel);
+						console.log("🔹 Channel WebSocket connected to channel:", data.channel);
 					}
 				} catch (error) {
-					console.error("🔸 Error parsing channel SSE message:", error);
+					console.error("🔸 Error parsing channel WebSocket message:", error);
 				}
 			};
 			
-			eventSource.onerror = (error) => {
-				console.error("🔸 Channel SSE connection error:", error);
-				eventSource.close();
+			ws.onclose = (event) => {
+				console.log("🔸 Channel WebSocket connection closed:", event.code, event.reason);
 				
-				// Reconnect after 3 seconds
-				reconnectTimeoutRef.current = window.setTimeout(() => {
-					console.log("🔹 Attempting to reconnect channel SSE...");
-					connectSSE();
-				}, 3000);
+				// Reconnect after 3 seconds if not a clean close
+				if (event.code !== 1000) {
+					reconnectTimeoutRef.current = window.setTimeout(() => {
+						console.log("🔹 Attempting to reconnect channel WebSocket...");
+						connectWS();
+					}, 3000);
+				}
+			};
+			
+			ws.onerror = (error) => {
+				console.error("🔸 Channel WebSocket connection error:", error);
 			};
 		}
 
-		function disconnectSSE() {
-			if (esRef.current) {
-				console.log("🔹 Disconnecting channel SSE");
-				esRef.current.close();
-				esRef.current = null;
+		function disconnectWS() {
+			if (wsRef.current) {
+				console.log("🔹 Disconnecting channel WebSocket");
+				wsRef.current.close(1000, "Component unmounting");
+				wsRef.current = null;
 			}
 			if (reconnectTimeoutRef.current) {
 				clearTimeout(reconnectTimeoutRef.current);
@@ -71,11 +81,11 @@ export function SSERefresher({ channelId }: { channelId: string }) {
 			}
 		}
 
-		// Start SSE connection
-		connectSSE();
+		// Start WebSocket connection
+		connectWS();
 		
 		return () => {
-			disconnectSSE();
+			disconnectWS();
 		};
 	}, [channelId, router]);
 

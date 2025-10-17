@@ -1,52 +1,78 @@
-import {
-	boolean,
-	integer,
-	pgTable,
-	serial,
-	text,
-	timestamp,
-} from "drizzle-orm/pg-core";
+// Re-export SurrealDB types for backward compatibility
+export type {
+	Attachment,
+	AvatarHistory,
+	Channel,
+	ChannelsResponse,
+	DiscordChannel,
+	Embed,
+	EmbedField,
+	EmbedFooter,
+	EmbedImage,
+	LiveQueryEvent,
+	Message,
+	ModHistoryEntry,
+	ModPreferences,
+	Reaction,
+	Relationship,
+	RenamedUser,
+	Role,
+	User,
+	UserStatus,
+	VoiceChannelSession,
+	VoiceInteraction,
+} from "./surreal/types";
 
-export const users = pgTable("users", {
-	id: serial("id").primaryKey(),
-	discordId: text("discord_id").notNull(),
-	guildId: text("guild_id").notNull(),
-	bot: text("bot").default("false"),
-	username: text("username").notNull(),
-	displayName: text("display_name").notNull(),
-	nickname: text("nickname"),
-	discriminator: text("discriminator").notNull(),
-	avatar: text("avatar"),
-	status: text("status"),
-	roles: text("roles").array(),
-	joinedAt: timestamp("joined_at").notNull(),
-	lastSeen: timestamp("last_seen").notNull(),
-	avatarHistory: text("avatar_history"),
-	usernameHistory: text("username_history").array(),
-	displayNameHistory: text("display_name_history").array(),
-	statusHistory: text("status_history"),
-	emoji: text("emoji"),
-	title: text("title"),
-	summary: text("summary"),
-	keywords: text("keywords").array(),
-	notes: text("notes").array(),
-	relationships: text("relationships"),
-	modPreferences: text("mod_preferences"),
-	voiceInteractions: text("voice_interactions"),
-	createdAt: timestamp("created_at").defaultNow(),
-	updatedAt: timestamp("updated_at").defaultNow(),
-});
+// Legacy type aliases for backward compatibility
+export type SelectUser = User;
+export type SelectChannel = Channel;
+export type SelectMessage = Message;
+export type SelectRole = Role;
 
-export const channels = pgTable("channels", {
-	id: serial("id").primaryKey(),
-	discordId: text("discord_id").notNull(),
-	guildId: text("guild_id").notNull(),
-	channelName: text("channel_name").notNull(),
-	position: integer("position").notNull(),
-	status: text("status"),
-	isActive: boolean("is_active"),
-	activeUserIds: text("active_user_ids").array(),
-	memberCount: integer("member_count"),
-	createdAt: timestamp("created_at").defaultNow(),
-	updatedAt: timestamp("updated_at").defaultNow(),
-});
+// Legacy interface for backward compatibility
+export interface DiscordChannel {
+	id: string;
+	name: string;
+	status: string | null;
+	type: number;
+	position: number;
+	userLimit: number;
+	bitrate: number;
+	parentId: string | null;
+	permissionOverwrites: unknown[];
+	memberCount: number;
+}
+
+// Helper functions for data transformation
+export function transformSurrealChannelToDiscordChannel(
+	channel: Channel,
+): DiscordChannel {
+	return {
+		id: channel.discordId,
+		name: channel.channelName,
+		status: channel.status ?? null,
+		type: 2, // Voice channel type
+		position: channel.position,
+		userLimit: 0, // Default unlimited
+		bitrate: 64000, // Default bitrate
+		parentId: null, // Default no parent
+		permissionOverwrites: [], // Default empty
+		memberCount: channel.memberCount || 0,
+	};
+}
+
+export function transformSurrealUserToLegacyUser(user: User) {
+	return {
+		id: user.discordId,
+		username: user.username,
+		displayName: user.displayName,
+		nickname: user.nickname,
+		discriminator: user.discriminator,
+		avatar: user.avatar,
+		status: user.status,
+		roles: user.roles,
+		joinedAt: user.joinedAt,
+		lastSeen: user.lastSeen,
+		voiceInteractions: user.voiceInteractions,
+	};
+}

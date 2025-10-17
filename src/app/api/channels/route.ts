@@ -1,12 +1,21 @@
 import { NextResponse } from "next/server";
-import { getAllChannels } from "@/lib/db";
+import { executeQuery } from "@/lib/surreal/client";
+import type { Channel, ChannelsResponse } from "@/lib/surreal/types";
 
 export async function GET() {
 	try {
-		// Fetch channels from database
-		const dbChannels = await getAllChannels();
+		// Fetch channels from SurrealDB
+		// Note: We'll need to get the guild_id from somewhere - for now using a placeholder
+		// In a real implementation, this would come from session/auth context
+		const guildId = process.env.GUILD_ID || "1254694808228986912";
 
-		// Map database fields to DiscordChannel interface format
+		// Try to query channels table directly
+		const dbChannels = await executeQuery<Channel>(
+			`SELECT * FROM channels WHERE guild_id = $guild_id AND is_active = true ORDER BY position ASC`,
+			{ guild_id: guildId },
+		);
+
+		// Map database fields to DiscordChannel interface format for backward compatibility
 		const formattedChannels = dbChannels.map((channel) => ({
 			id: channel.discordId,
 			name: channel.channelName,
@@ -23,7 +32,7 @@ export async function GET() {
 		const response = NextResponse.json({
 			channels: formattedChannels,
 			totalChannels: formattedChannels.length,
-		});
+		} as ChannelsResponse);
 
 		// Add headers for better caching and performance
 		response.headers.set(
@@ -35,10 +44,10 @@ export async function GET() {
 
 		return response;
 	} catch (error) {
-		console.error("Error fetching channels from database:", error);
+		console.error("🔸 Error fetching channels from SurrealDB:", error);
 		return NextResponse.json(
 			{
-				error: "Failed to fetch channels from database",
+				error: "Failed to fetch channels from SurrealDB",
 				channels: [],
 				totalChannels: 0,
 			},

@@ -1,6 +1,6 @@
-import { eq } from "drizzle-orm";
 import { type NextRequest, NextResponse } from "next/server";
-import { channels, db } from "@/lib/db";
+import { executeQuery, executeQueryOne } from "@/lib/surreal/client";
+import type { Channel } from "@/lib/surreal/types";
 
 export async function POST(request: NextRequest) {
 	try {
@@ -18,30 +18,32 @@ export async function POST(request: NextRequest) {
 			`🔹 Testing realtime update: ${action} for channel ${channelId}`,
 		);
 
-		// Find the channel
-		const channel = await db
-			.select()
-			.from(channels)
-			.where(eq(channels.discordId, channelId))
-			.limit(1);
+		// Get guild_id from environment or use default
+		const guildId = process.env.GUILD_ID || "default-guild";
 
-		if (channel.length === 0) {
+		// Find the channel in SurrealDB
+		const channel = await executeQueryOne<Channel>(
+			`SELECT * FROM channels WHERE discord_id = $discord_id AND guild_id = $guild_id`,
+			{ discord_id: channelId, guild_id: guildId },
+		);
+
+		if (!channel) {
 			return NextResponse.json({ error: "Channel not found" }, { status: 404 });
 		}
-
-		const channelData = channel[0];
 
 		// Perform the test action
 		switch (action) {
 			case "update_member_count": {
 				const newMemberCount = Math.floor(Math.random() * 50) + 1;
-				await db
-					.update(channels)
-					.set({
-						memberCount: newMemberCount,
-						updatedAt: new Date(),
-					})
-					.where(eq(channels.discordId, channelId));
+				await executeQuery(
+					`UPDATE channels SET member_count = $member_count, updated_at = $updated_at WHERE discord_id = $discord_id AND guild_id = $guild_id`,
+					{
+						member_count: newMemberCount,
+						updated_at: new Date().toISOString(),
+						discord_id: channelId,
+						guild_id: guildId,
+					},
+				);
 
 				return NextResponse.json({
 					success: true,
@@ -54,13 +56,15 @@ export async function POST(request: NextRequest) {
 			case "update_status": {
 				const statuses = ["active", "inactive", "maintenance"];
 				const newStatus = statuses[Math.floor(Math.random() * statuses.length)];
-				await db
-					.update(channels)
-					.set({
+				await executeQuery(
+					`UPDATE channels SET status = $status, updated_at = $updated_at WHERE discord_id = $discord_id AND guild_id = $guild_id`,
+					{
 						status: newStatus,
-						updatedAt: new Date(),
-					})
-					.where(eq(channels.discordId, channelId));
+						updated_at: new Date().toISOString(),
+						discord_id: channelId,
+						guild_id: guildId,
+					},
+				);
 
 				return NextResponse.json({
 					success: true,
@@ -71,14 +75,16 @@ export async function POST(request: NextRequest) {
 			}
 
 			case "toggle_active": {
-				const newActiveState = !channelData.isActive;
-				await db
-					.update(channels)
-					.set({
-						isActive: newActiveState,
-						updatedAt: new Date(),
-					})
-					.where(eq(channels.discordId, channelId));
+				const newActiveState = !channel.isActive;
+				await executeQuery(
+					`UPDATE channels SET is_active = $is_active, updated_at = $updated_at WHERE discord_id = $discord_id AND guild_id = $guild_id`,
+					{
+						is_active: newActiveState,
+						updated_at: new Date().toISOString(),
+						discord_id: channelId,
+						guild_id: guildId,
+					},
+				);
 
 				return NextResponse.json({
 					success: true,

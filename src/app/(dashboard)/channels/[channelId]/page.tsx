@@ -1,14 +1,13 @@
-import { inArray, sql } from "drizzle-orm";
 import { Users, Volume2 } from "lucide-react";
 import { unstable_noStore as noStore } from "next/cache";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { db, getChannelByDiscordId, users } from "@/lib/db";
+import { executeQuery, executeQueryOne } from "@/lib/surreal/client";
+import type { Channel, User, VoiceChannelSession } from "@/lib/surreal/types";
 import type { DiscordChannel } from "../../channels-table";
 // eslint-disable-next-line import/no-unresolved
 import { DurationTicker } from "./duration-ticker";
-import { SSERefresher } from "./sse-refresher";
 
 export const dynamic = "force-dynamic";
 
@@ -28,10 +27,16 @@ async function getChannelDetails(channelId: string): Promise<{
 }> {
 	noStore();
 	try {
-		console.log("Fetching channel details from database:", channelId);
+		console.log("Fetching channel details from SurrealDB:", channelId);
 
-		// Fetch channel directly from database
-		const dbChannel = await getChannelByDiscordId(channelId);
+		// Get guild_id from environment or use default
+		const guildId = process.env.GUILD_ID || "default-guild";
+
+		// Fetch channel directly from SurrealDB
+		const dbChannel = await executeQueryOne<Channel>(
+			`SELECT * FROM channels WHERE discord_id = $discord_id AND guild_id = $guild_id`,
+			{ discord_id: channelId, guild_id: guildId },
+		);
 
 		if (!dbChannel) {
 			return {
@@ -75,8 +80,14 @@ async function getChannelMembers(channelId: string): Promise<{
 	try {
 		console.log("Fetching members for channel:", channelId);
 
-		// Get channel from database
-		const channel = await getChannelByDiscordId(channelId);
+		// Get guild_id from environment or use default
+		const guildId = process.env.GUILD_ID || "default-guild";
+
+		// Get channel from SurrealDB
+		const channel = await executeQueryOne<Channel>(
+			`SELECT * FROM channels WHERE discord_id = $discord_id AND guild_id = $guild_id`,
+			{ discord_id: channelId, guild_id: guildId },
+		);
 
 		if (!channel) {
 			return {
@@ -86,75 +97,45 @@ async function getChannelMembers(channelId: string): Promise<{
 			};
 		}
 
-		// If no active users, return empty
-		if (!channel.activeUserIds || channel.activeUserIds.length === 0) {
+		// Get active voice sessions for this channel
+		const activeSessions = await executeQuery<VoiceChannelSession>(
+			`SELECT * FROM voice_channel_sessions WHERE channel_id = $channel_id AND is_active = true`,
+			{ channel_id: channelId },
+		);
+
+		if (activeSessions.length === 0) {
 			return {
 				members: [],
 				totalMembers: 0,
 			};
 		}
 
-		// Prefer precise joined_at from voice_channel_sessions if available
-		const sessionsByUser = new Map<string, string>();
-		try {
-			const sessions = await db.execute(
-				sql`SELECT user_id, joined_at FROM voice_channel_sessions WHERE channel_id = ${channelId} AND is_active = true`,
-			);
-			const rows =
-				(
-					sessions as unknown as {
-						rows?: Array<{ user_id: string; joined_at: string }>;
-					}
-				).rows || [];
-			for (const r of rows) {
-				if (channel.activeUserIds.includes(r.user_id))
-					sessionsByUser.set(r.user_id, r.joined_at);
-			}
-		} catch {}
+		// Get user data for active members
+		const activeUserIds = activeSessions.map((session) => session.userId);
+		const users = await executeQuery<User>(
+			`SELECT * FROM users WHERE discord_id IN $user_ids AND guild_id = $guild_id`,
+			{ user_ids: activeUserIds, guild_id: guildId },
+		);
 
-		// Get user details for active users
-		const activeMembersRaw = await db
-			.select({
-				id: users.discordId,
-				username: users.username,
-				displayName: users.displayName,
-				nickname: users.nickname,
-				avatar: users.avatar,
-				discriminator: users.discriminator,
-				voiceInteractions: users.voiceInteractions,
-			})
-			.from(users)
-			.where(inArray(users.discordId, channel.activeUserIds));
-
-		console.log("Found active members:", activeMembersRaw.length);
+		const sessionsByUser = new Map<string, VoiceChannelSession>();
+		for (const session of activeSessions) {
+			sessionsByUser.set(session.userId, session);
+		}
 
 		const now = Date.now();
-		const membersWithDurations = activeMembersRaw.map((member) => {
-			let joinedAt: string | null = sessionsByUser.get(member.id) || null;
-			if (!joinedAt) {
-				try {
-					if (member.voiceInteractions) {
-						const interactions = JSON.parse(member.voiceInteractions) as Array<{
-							channelId?: string;
-							joinedAt?: string;
-							leftAt?: string;
-						}>;
-						const match = interactions.find(
-							(i) => i.channelId === channelId && i.joinedAt && !i.leftAt,
-						);
-						if (match?.joinedAt) joinedAt = match.joinedAt;
-					}
-				} catch {}
-			}
+		const membersWithDurations = users.map((user) => {
+			const session = sessionsByUser.get(user.discordId);
+			const joinedAt = session?.joinedAt.toISOString() || null;
 			const durationMs = joinedAt
 				? Math.max(0, now - new Date(joinedAt).getTime())
 				: 0;
+
 			return {
-				id: member.id,
-				username: member.username,
-				displayName: member.nickname || member.displayName,
-				avatar: member.avatar,
-				discriminator: member.discriminator,
+				id: user.discordId,
+				username: user.username,
+				displayName: user.nickname || user.displayName,
+				avatar: user.avatar || null,
+				discriminator: user.discriminator,
 				joinedAt,
 				durationMs,
 			};
@@ -164,6 +145,8 @@ async function getChannelMembers(channelId: string): Promise<{
 		membersWithDurations.sort(
 			(a, b) => (b.durationMs ?? 0) - (a.durationMs ?? 0),
 		);
+
+		console.log("Found active members:", membersWithDurations.length);
 
 		return {
 			members: membersWithDurations,
@@ -214,7 +197,6 @@ export default async function ChannelPage({
 
 	return (
 		<div className="space-y-4">
-			<SSERefresher channelId={channel.id} />
 			<div className="flex items-center justify-between gap-4">
 				<h1 className="text-3xl font-bold tracking-tight flex items-center gap-2">
 					<Volume2 className="h-8 w-8 text-muted-foreground" />

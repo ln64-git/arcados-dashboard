@@ -1,6 +1,7 @@
 import NextAuth from "next-auth";
 import Discord from "next-auth/providers/discord";
-import { createOrUpdateUser } from "./db";
+import { executeQuery } from "./surreal/client";
+import type { User } from "./surreal/types";
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
 	debug: true, // Enable debug mode
@@ -60,8 +61,8 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
 
 					const guildMember = await guildMemberResponse.json();
 
-					// Create or update user in database
-					await createOrUpdateUser({
+					// Create or update user in SurrealDB
+					const userData = {
 						discordId: profile.id as string,
 						guildId: guildId,
 						username: profile.username as string,
@@ -69,7 +70,73 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
 						discriminator: (profile.discriminator as string) || "0",
 						avatar: (profile.avatar as string) || "",
 						roles: guildMember.roles || [],
-					});
+						bot: false,
+						nickname: guildMember.nick || null,
+						status: "online",
+						joinedAt: new Date().toISOString(),
+						lastSeen: new Date().toISOString(),
+						avatarHistory: [],
+						usernameHistory: [],
+						displayNameHistory: [],
+						nicknameHistory: [],
+						statusHistory: [],
+						keywords: [],
+						notes: [],
+						relationships: [],
+						modPreferences: {
+							bannedUsers: [],
+							mutedUsers: [],
+							kickedUsers: [],
+							deafenedUsers: [],
+							renamedUsers: [],
+							modHistory: [],
+							lastUpdated: new Date().toISOString(),
+						},
+						voiceInteractions: [],
+						createdAt: new Date().toISOString(),
+						updatedAt: new Date().toISOString(),
+					};
+
+					await executeQuery(
+						`UPDATE users SET 
+							username = $username,
+							display_name = $displayName,
+							nickname = $nickname,
+							avatar = $avatar,
+							roles = $roles,
+							last_seen = $lastSeen,
+							updated_at = $updatedAt
+						WHERE discord_id = $discordId AND guild_id = $guildId;
+						
+						IF NONE THEN
+							CREATE users SET 
+								discord_id = $discordId,
+								guild_id = $guildId,
+								username = $username,
+								display_name = $displayName,
+								nickname = $nickname,
+								avatar = $avatar,
+								discriminator = $discriminator,
+								roles = $roles,
+								bot = $bot,
+								status = $status,
+								joined_at = $joinedAt,
+								last_seen = $lastSeen,
+								avatar_history = $avatarHistory,
+								username_history = $usernameHistory,
+								display_name_history = $displayNameHistory,
+								nickname_history = $nicknameHistory,
+								status_history = $statusHistory,
+								keywords = $keywords,
+								notes = $notes,
+								relationships = $relationships,
+								mod_preferences = $modPreferences,
+								voice_interactions = $voiceInteractions,
+								created_at = $createdAt,
+								updated_at = $updatedAt;
+						END`,
+						userData,
+					);
 
 					return true;
 				} catch (error) {

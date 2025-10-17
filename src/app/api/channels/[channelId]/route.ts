@@ -1,6 +1,6 @@
-import { inArray, sql } from "drizzle-orm";
 import { NextResponse } from "next/server";
-import { db, getChannelByDiscordId, users } from "@/lib/db";
+import { executeQuery, executeQueryOne } from "@/lib/surreal/client";
+import type { Channel, User, VoiceChannelSession } from "@/lib/surreal/types";
 
 export async function GET(
 	_req: Request,
@@ -9,89 +9,85 @@ export async function GET(
 	const { channelId } = params;
 
 	try {
-		const channel = await getChannelByDiscordId(channelId);
-		if (!channel)
+		// Get guild_id from environment or use default
+		const guildId = process.env.GUILD_ID || "default-guild";
+
+		// Fetch channel from SurrealDB
+		const channel = await executeQueryOne<Channel>(
+			`SELECT * FROM channels WHERE discord_id = $discord_id AND guild_id = $guild_id`,
+			{ discord_id: channelId, guild_id: guildId },
+		);
+
+		if (!channel) {
 			return NextResponse.json({ error: "Channel not found" }, { status: 404 });
+		}
 
-		let sessionsRows: Array<{ user_id: string; joined_at: string }> = [];
-		try {
-			const sessions = await db.execute(
-				sql`SELECT user_id, joined_at FROM voice_channel_sessions WHERE channel_id = ${channelId} AND is_active = true`,
+		// Fetch active voice sessions for this channel
+		const activeSessions = await executeQuery<VoiceChannelSession>(
+			`SELECT * FROM voice_channel_sessions WHERE channel_id = $channel_id AND is_active = true`,
+			{ channel_id: channelId },
+		);
+
+		// Get user data for active members
+		const activeUserIds = activeSessions.map((session) => session.userId);
+		let activeMembers: Array<{
+			id: string;
+			username: string;
+			displayName: string;
+			nickname?: string;
+			avatar?: string;
+			discriminator: string;
+			joinedAt: string | null;
+			durationMs: number;
+		}> = [];
+
+		if (activeUserIds.length > 0) {
+			const users = await executeQuery<User>(
+				`SELECT * FROM users WHERE discord_id IN $user_ids AND guild_id = $guild_id`,
+				{ user_ids: activeUserIds, guild_id: guildId },
 			);
-			sessionsRows =
-				(
-					sessions as unknown as {
-						rows?: Array<{ user_id: string; joined_at: string }>;
-					}
-				).rows || [];
-		} catch {}
-		const sessionsByUser = new Map<string, string>();
-		for (const r of sessionsRows) sessionsByUser.set(r.user_id, r.joined_at);
 
-		const activeIds = channel.activeUserIds || [];
-		const activeMembersRaw = activeIds.length
-			? await db
-					.select({
-						id: users.discordId,
-						username: users.username,
-						displayName: users.displayName,
-						nickname: users.nickname,
-						avatar: users.avatar,
-						discriminator: users.discriminator,
-						voiceInteractions: users.voiceInteractions,
-					})
-					.from(users)
-					.where(inArray(users.discordId, activeIds))
-			: [];
+			const now = Date.now();
+			activeMembers = users.map((user) => {
+				// Find the session for this user
+				const session = activeSessions.find((s) => s.userId === user.discordId);
+				const joinedAt = session?.joinedAt.toISOString() || null;
 
-		const now = Date.now();
-		const members = activeMembersRaw.map((m) => {
-			let joinedAt: string | null = sessionsByUser.get(m.id) || null;
-			if (!joinedAt && m.voiceInteractions) {
-				try {
-					const interactions = JSON.parse(m.voiceInteractions) as Array<{
-						channelId?: string;
-						joinedAt?: string;
-						leftAt?: string;
-					}>;
-					const match = interactions.find(
-						(i) => i.channelId === channelId && i.joinedAt && !i.leftAt,
-					);
-					if (match?.joinedAt) joinedAt = match.joinedAt;
-				} catch {}
-			}
-			return {
-				id: m.id,
-				username: m.username,
-				displayName: m.nickname || m.displayName,
-				avatar: m.avatar,
-				discriminator: m.discriminator,
-				joinedAt,
-				durationMs: joinedAt
-					? Math.max(0, now - new Date(joinedAt).getTime())
-					: 0,
-			};
-		});
-		members.sort((a, b) => (b.durationMs ?? 0) - (a.durationMs ?? 0));
+				return {
+					id: user.discordId,
+					username: user.username,
+					displayName: user.nickname || user.displayName,
+					nickname: user.nickname,
+					avatar: user.avatar,
+					discriminator: user.discriminator,
+					joinedAt,
+					durationMs: joinedAt
+						? Math.max(0, now - new Date(joinedAt).getTime())
+						: 0,
+				};
+			});
+
+			// Sort by duration (longest first)
+			activeMembers.sort((a, b) => b.durationMs - a.durationMs);
+		}
 
 		return NextResponse.json({
-			channel: channel
-				? {
-						id: channel.discordId,
-						name: channel.channelName,
-						status: channel.status ?? null,
-						type: 2,
-						position: channel.position,
-						userLimit: 0,
-						bitrate: 64000,
-						parentId: null,
-						permissionOverwrites: [],
-						memberCount: channel.memberCount || 0,
-					}
-				: null,
-			members,
+			channel: {
+				id: channel.discordId,
+				name: channel.channelName,
+				status: channel.status ?? null,
+				type: 2,
+				position: channel.position,
+				userLimit: 0,
+				bitrate: 64000,
+				parentId: null,
+				permissionOverwrites: [],
+				memberCount: channel.memberCount || 0,
+			},
+			members: activeMembers,
 		});
 	} catch (err) {
+		console.error("🔸 Error fetching channel details from SurrealDB:", err);
 		return NextResponse.json(
 			{ error: err instanceof Error ? err.message : "Unknown error" },
 			{ status: 500 },

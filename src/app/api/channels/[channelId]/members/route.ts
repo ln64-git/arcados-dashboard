@@ -1,6 +1,6 @@
-import { inArray, sql } from "drizzle-orm";
 import { NextResponse } from "next/server";
-import { db, getChannelByDiscordId, users } from "@/lib/db";
+import { executeQuery, executeQueryOne } from "@/lib/surreal/client";
+import type { Channel, User, VoiceChannelSession } from "@/lib/surreal/types";
 
 export async function GET(
 	_request: Request,
@@ -8,10 +8,16 @@ export async function GET(
 ) {
 	try {
 		const { channelId } = await params;
-		console.log("Fetching members for channel:", channelId);
+		console.log("🔹 Fetching members for channel:", channelId);
 
-		// Get channel from database
-		const channel = await getChannelByDiscordId(channelId);
+		// Get guild_id from environment or use default
+		const guildId = process.env.GUILD_ID || "default-guild";
+
+		// Get channel from SurrealDB
+		const channel = await executeQueryOne<Channel>(
+			`SELECT * FROM channels WHERE discord_id = $discord_id AND guild_id = $guild_id`,
+			{ discord_id: channelId, guild_id: guildId },
+		);
 
 		if (!channel) {
 			return NextResponse.json(
@@ -24,81 +30,48 @@ export async function GET(
 			);
 		}
 
-		// Normalize active user ids (filter out null/empty)
-		const activeIds = (channel.activeUserIds || []).filter(
-			(id): id is string => typeof id === "string" && id.trim().length > 0,
+		// Fetch active voice sessions for this channel
+		const activeSessions = await executeQuery<VoiceChannelSession>(
+			`SELECT * FROM voice_channel_sessions WHERE channel_id = $channel_id AND is_active = true`,
+			{ channel_id: channelId },
 		);
 
-		// If no valid active users, return empty
-		if (activeIds.length === 0) {
+		// If no active sessions, return empty
+		if (activeSessions.length === 0) {
 			return NextResponse.json({
 				members: [],
 				totalMembers: 0,
 			});
 		}
 
-		// Try sessions table for precise joined_at
-		const sessionsByUser = new Map<string, string>();
-		try {
-			const sessions = await db.execute(
-				sql`SELECT user_id, joined_at FROM voice_channel_sessions WHERE channel_id = ${channelId} AND is_active = true`,
-			);
-			const rows: Array<{ user_id: string; joined_at: string }> =
-				(sessions as any).rows || [];
-			for (const r of rows) {
-				if (activeIds.includes(r.user_id)) {
-					sessionsByUser.set(r.user_id, r.joined_at);
-				}
-			}
-		} catch {}
+		// Get user data for active members
+		const activeUserIds = activeSessions.map((session) => session.userId);
+		const users = await executeQuery<User>(
+			`SELECT * FROM users WHERE discord_id IN $user_ids AND guild_id = $guild_id`,
+			{ user_ids: activeUserIds, guild_id: guildId },
+		);
 
-		// Get user details for active users
-		const activeMembersRaw = await db
-			.select({
-				id: users.discordId,
-				username: users.username,
-				displayName: users.displayName,
-				nickname: users.nickname,
-				avatar: users.avatar,
-				discriminator: users.discriminator,
-				voiceInteractions: users.voiceInteractions,
-			})
-			.from(users)
-			.where(inArray(users.discordId, activeIds));
+		// Create sessions map for quick lookup
+		const sessionsByUser = new Map<string, VoiceChannelSession>();
+		for (const session of activeSessions) {
+			sessionsByUser.set(session.userId, session);
+		}
 
-		// Derive joinedAt for this channel from voiceInteractions
+		// Build member data with duration calculation
 		const now = Date.now();
-		const activeMembers = activeMembersRaw.map((member) => {
-			let joinedAt: string | null = null;
-			// Prefer sessions table joined_at if available
-			joinedAt = sessionsByUser.get(member.id) || null;
-			// Fallback to open voice interaction (no leftAt)
-			if (!joinedAt) {
-				try {
-					if (member.voiceInteractions) {
-						const interactions = JSON.parse(
-							member.voiceInteractions as unknown as string,
-						) as Array<{
-							channelId?: string;
-							joinedAt?: string;
-							leftAt?: string;
-						}>; // stored as text/jsonb
-						const match = interactions.find(
-							(i) => i.channelId === channelId && i.joinedAt && !i.leftAt,
-						);
-						if (match?.joinedAt) joinedAt = match.joinedAt;
-					}
-				} catch {}
-			}
+		const activeMembers = users.map((user) => {
+			const session = sessionsByUser.get(user.discordId);
+			const joinedAt = session?.joinedAt.toISOString() || null;
 			const durationMs = joinedAt
 				? Math.max(0, now - new Date(joinedAt).getTime())
 				: 0;
+
 			return {
-				id: member.id,
-				username: member.username,
-				displayName: member.nickname || member.displayName,
-				avatar: member.avatar,
-				discriminator: member.discriminator,
+				id: user.discordId,
+				username: user.username,
+				displayName: user.nickname || user.displayName,
+				avatar: user.avatar,
+				discriminator: user.discriminator,
 				joinedAt,
 				durationMs,
 			};
@@ -107,14 +80,14 @@ export async function GET(
 		// Sort by longest in channel
 		activeMembers.sort((a, b) => b.durationMs - a.durationMs);
 
-		console.log("Found active members:", activeMembers.length);
+		console.log("🔹 Found active members:", activeMembers.length);
 
 		return NextResponse.json({
 			members: activeMembers,
 			totalMembers: activeMembers.length,
 		});
 	} catch (error) {
-		console.error("Error fetching channel members:", error);
+		console.error("🔸 Error fetching channel members from SurrealDB:", error);
 		return NextResponse.json(
 			{
 				error: "Failed to fetch channel members",

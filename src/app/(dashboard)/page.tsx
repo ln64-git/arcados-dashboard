@@ -1,8 +1,8 @@
 import { unstable_noStore as noStore } from "next/cache";
-import { getAllChannels } from "@/lib/db";
+import { executeQuery } from "@/lib/surreal/client";
+import type { Channel } from "@/lib/surreal/types";
 import { ChannelsLive } from "./channels-live";
 import type { DiscordChannel } from "./channels-table";
-import { SSERefresherChannels } from "./sse-refresher-channels";
 
 export const dynamic = "force-dynamic";
 
@@ -13,10 +13,16 @@ async function getChannels(): Promise<{
 }> {
 	try {
 		noStore();
-		console.log("Fetching channels from database...");
+		console.log("Fetching channels from SurrealDB...");
 
-		// Fetch channels directly from database instead of making HTTP request
-		const dbChannels = await getAllChannels();
+		// Get guild_id from environment or use default
+		const guildId = process.env.GUILD_ID || "default-guild";
+
+		// Fetch channels directly from SurrealDB
+		const dbChannels = await executeQuery<Channel>(
+			`SELECT * FROM channels WHERE guildId = $guildId AND isActive = true ORDER BY position ASC`,
+			{ guildId: guildId },
+		);
 		console.log("Fetched channels count:", dbChannels.length);
 
 		// Map database fields to DiscordChannel interface format
@@ -40,7 +46,7 @@ async function getChannels(): Promise<{
 			totalChannels: formattedChannels.length,
 		};
 	} catch (error) {
-		console.error("Error fetching channels from database:", error);
+		console.error("Error fetching channels from SurrealDB:", error);
 		return {
 			channels: [],
 			totalChannels: 0,
@@ -54,7 +60,6 @@ export default async function ChannelsPage() {
 
 	return (
 		<div className="space-y-4">
-			<SSERefresherChannels />
 			<div className="flex items-center justify-between">
 				<div>
 					<h1 className="text-3xl font-bold tracking-tight">Channels</h1>
