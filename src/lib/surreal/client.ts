@@ -1,14 +1,17 @@
 import "server-only";
 import { validateSurrealConfig } from "./config";
-import { SurrealHttpClient } from "./SurrealHttpClient";
+import { SurrealHttpClientServer } from "./SurrealHttpClientServer";
+import { SurrealWebSocketClient } from "./SurrealWebSocketClient";
+import type { LiveQueryEvent } from "./types";
 
-let surreal: SurrealHttpClient | null = null;
+let surreal: SurrealHttpClientServer | null = null;
+let wsClient: SurrealWebSocketClient | null = null;
 let isConnecting = false;
 let connectionRetries = 0;
 const MAX_RETRIES = 5;
 const RETRY_DELAY = 1000; // 1 second
 
-export async function getSurrealConnection(): Promise<SurrealHttpClient> {
+export async function getSurrealConnection(): Promise<SurrealHttpClientServer> {
 	if (surreal) {
 		return surreal;
 	}
@@ -24,7 +27,7 @@ export async function getSurrealConnection(): Promise<SurrealHttpClient> {
 	isConnecting = true;
 
 	try {
-		surreal = new SurrealHttpClient();
+		surreal = new SurrealHttpClientServer();
 
 		// Connect with timeout
 		await Promise.race([
@@ -60,15 +63,48 @@ export async function getSurrealConnection(): Promise<SurrealHttpClient> {
 	}
 }
 
+export async function getWebSocketConnection(): Promise<SurrealWebSocketClient> {
+	if (wsClient) {
+		return wsClient;
+	}
+
+	validateSurrealConfig();
+
+	try {
+		wsClient = new SurrealWebSocketClient();
+		await wsClient.connect();
+		console.log("🔹 Connected to SurrealDB WebSocket successfully");
+		return wsClient;
+	} catch (error) {
+		console.error("🔸 SurrealDB WebSocket connection failed:", error);
+		throw error;
+	}
+}
+
 export async function closeSurrealConnection(): Promise<void> {
 	if (surreal) {
 		try {
-			await surreal.close();
+			await surreal.disconnect();
 		} catch (error) {
-			console.warn("🔸 Error closing SurrealDB connection:", error);
+			console.warn("🔸 Error closing SurrealDB HTTP connection:", error);
 		}
 		surreal = null;
 	}
+}
+
+export async function closeWebSocketConnection(): Promise<void> {
+	if (wsClient) {
+		try {
+			await wsClient.close();
+		} catch (error) {
+			console.warn("🔸 Error closing SurrealDB WebSocket connection:", error);
+		}
+		wsClient = null;
+	}
+}
+
+export async function closeAllConnections(): Promise<void> {
+	await Promise.all([closeSurrealConnection(), closeWebSocketConnection()]);
 }
 
 // Helper function to execute queries with automatic connection management
@@ -78,7 +114,7 @@ export async function executeQuery<T = unknown>(
 ): Promise<T[]> {
 	const db = await getSurrealConnection();
 	try {
-		return await db.query<T>(query, params);
+		return await db.executeQuery<T>(query, params);
 	} catch (error) {
 		console.error("🔸 SurrealDB query error:", error);
 		throw error;
@@ -96,7 +132,7 @@ export async function executeQueryOne<T = unknown>(
 
 // Helper function to execute a transaction
 export async function executeTransaction<T>(
-	callback: (surreal: SurrealHttpClient) => Promise<T>,
+	callback: (surreal: SurrealHttpClientServer) => Promise<T>,
 ): Promise<T> {
 	const surreal = await getSurrealConnection();
 	try {
@@ -119,4 +155,71 @@ export function createRecordId(table: string, id: string): string {
 export function parseRecordId(recordId: string): { table: string; id: string } {
 	const [table, ...idParts] = recordId.split(":");
 	return { table, id: idParts.join(":") };
+}
+
+// Live Query Functions (WebSocket-based)
+export async function subscribeLiveQuery(
+	query: string,
+	params: Record<string, unknown> = {},
+	callback: (event: LiveQueryEvent) => void,
+): Promise<string> {
+	const ws = await getWebSocketConnection();
+	const liveQueryId = await ws.live(query, params);
+	ws.onLiveQuery(liveQueryId, callback);
+	return liveQueryId;
+}
+
+export async function unsubscribeLiveQuery(liveQueryId: string): Promise<void> {
+	if (wsClient) {
+		await wsClient.kill(liveQueryId);
+		wsClient.offLiveQuery(liveQueryId);
+		console.log("🔹 Unsubscribed from live query:", liveQueryId);
+	}
+}
+
+// Convenience functions for common subscriptions
+export async function subscribeToChannels(
+	guildId: string,
+	callback: (event: LiveQueryEvent) => void,
+): Promise<string> {
+	return subscribeLiveQuery(
+		`SELECT * FROM channels WHERE guildId = $guildId`,
+		{ guildId },
+		callback,
+	);
+}
+
+export async function subscribeToVoiceSessions(
+	channelId?: string,
+	callback?: (event: LiveQueryEvent) => void,
+): Promise<string> {
+	const query = channelId
+		? `SELECT * FROM voice_sessions WHERE channelId = $channelId AND isActive = true`
+		: `SELECT * FROM voice_sessions WHERE isActive = true`;
+	const params = channelId ? { channelId } : {};
+
+	return subscribeLiveQuery(query, params, callback || (() => {}));
+}
+
+export async function subscribeToMembers(
+	guildId: string,
+	callback: (event: LiveQueryEvent) => void,
+): Promise<string> {
+	return subscribeLiveQuery(
+		`SELECT * FROM users WHERE guildId = $guildId`,
+		{ guildId },
+		callback,
+	);
+}
+
+export async function subscribeToMessages(
+	channelId: string,
+	callback: (event: LiveQueryEvent) => void,
+	limit: number = 50,
+): Promise<string> {
+	return subscribeLiveQuery(
+		`SELECT * FROM messages WHERE channelId = $channelId ORDER BY timestamp DESC LIMIT $limit`,
+		{ channelId, limit },
+		callback,
+	);
 }

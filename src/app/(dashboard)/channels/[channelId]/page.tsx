@@ -1,13 +1,12 @@
-import { Users, Volume2 } from "lucide-react";
+import { Volume2 } from "lucide-react";
 import { unstable_noStore as noStore } from "next/cache";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { executeQuery, executeQueryOne } from "@/lib/surreal/client";
 import type { Channel, User, VoiceChannelSession } from "@/lib/surreal/types";
 import type { DiscordChannel } from "../../channels-table";
 // eslint-disable-next-line import/no-unresolved
 import { DurationTicker } from "./duration-ticker";
+import { LiveChannelMembers } from "./live-channel-members";
 
 export const dynamic = "force-dynamic";
 
@@ -214,55 +213,10 @@ export default async function ChannelPage({
 				<p className="text-sm text-red-600 mt-2">🔸 Error: {membersError}</p>
 			)}
 
-			<Card className="border-0 shadow-none">
-				<CardHeader>
-					<CardTitle className="flex items-center gap-2">
-						<Users className="h-5 w-5" />
-						Current Members
-					</CardTitle>
-				</CardHeader>
-				<CardContent>
-					{members.length === 0 ? (
-						<div className="text-center py-8">
-							<Users className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-							<p className="text-muted-foreground">
-								No users currently in this channel
-							</p>
-						</div>
-					) : (
-						<div className="space-y-3">
-							{members.map((member) => (
-								<div key={member.id} className="flex items-center gap-3">
-									<Avatar className="h-8 w-8">
-										<AvatarImage
-											src={
-												member.avatar
-													? `https://cdn.discordapp.com/avatars/${member.id}/${member.avatar}.png`
-													: undefined
-											}
-											alt={member.displayName}
-										/>
-										<AvatarFallback>
-											{member.displayName.charAt(0).toUpperCase()}
-										</AvatarFallback>
-									</Avatar>
-									<div className="flex-1 min-w-0">
-										<p className="text-sm font-medium truncate">
-											{member.displayName}
-										</p>
-										<div className="flex items-center gap-2">
-											<p className="text-xs text-muted-foreground truncate">
-												@{member.username}
-											</p>
-											<DurationTicker start={member.joinedAt} />
-										</div>
-									</div>
-								</div>
-							))}
-						</div>
-					)}
-				</CardContent>
-			</Card>
+			<LiveChannelMembers 
+				initialMembers={members} 
+				channelId={channelId} 
+			/>
 		</div>
 	);
 }

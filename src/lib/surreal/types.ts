@@ -197,6 +197,72 @@ export interface LiveQueryEvent<T = unknown> {
 	result: T;
 }
 
+// SSE Event types
+export interface SSEEvent {
+	event: string;
+	data: any;
+	timestamp: number;
+}
+
+export interface SSEConnectionOptions {
+	channel: string;
+	guildId?: string;
+	channelId?: string;
+	onMessage?: (event: SSEEvent) => void;
+	onError?: (error: Error) => void;
+	onConnect?: () => void;
+	onDisconnect?: () => void;
+	reconnectDelay?: number;
+	maxReconnectAttempts?: number;
+}
+
+// WebSocket Message types
+export interface WebSocketMessage {
+	id?: string;
+	method: string;
+	params: unknown[];
+}
+
+export interface WebSocketResponse {
+	id?: string;
+	result?: unknown;
+	error?: {
+		code: number;
+		message: string;
+	};
+}
+
+export interface WebSocketNotification {
+	method: "notify";
+	params: [string, { action: "CREATE" | "UPDATE" | "DELETE"; result: unknown }];
+}
+
+// Subscription configuration types
+export interface SubscriptionConfig {
+	query: string;
+	params?: Record<string, unknown>;
+	intervalMs?: number;
+	onUpdate?: (data: LiveQueryEvent) => void;
+	onError?: (error: Error) => void;
+}
+
+export interface ChannelSubscriptionConfig extends SubscriptionConfig {
+	guildId: string;
+}
+
+export interface VoiceSessionSubscriptionConfig extends SubscriptionConfig {
+	channelId?: string;
+}
+
+export interface MemberSubscriptionConfig extends SubscriptionConfig {
+	guildId: string;
+}
+
+export interface MessageSubscriptionConfig extends SubscriptionConfig {
+	channelId: string;
+	limit?: number;
+}
+
 // API Response types for backward compatibility
 export interface DiscordChannel {
 	id: string;

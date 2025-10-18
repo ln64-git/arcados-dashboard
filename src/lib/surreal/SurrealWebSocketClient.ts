@@ -1,9 +1,9 @@
-import "server-only";
 import { surrealConfig } from "./config";
 import type { LiveQueryEvent } from "./types";
 
-// Import WebSocket for Node.js environment
-const WebSocket = require("ws");
+// Environment detection for WebSocket implementation
+const isServer = typeof window === "undefined";
+const WebSocket = isServer ? require("ws") : window.WebSocket;
 
 export class SurrealWebSocketClient {
 	private ws: WebSocket | null = null;
@@ -19,9 +19,17 @@ export class SurrealWebSocketClient {
 	private reconnectAttempts = 0;
 	private maxReconnectAttempts = 5;
 	private reconnectDelay = 1000;
+	private reconnectTimer: NodeJS.Timeout | null = null;
+	private queryResultCache: Map<string, { data: unknown; timestamp: number }> =
+		new Map();
+	private cacheTimeout = 5000; // 5 seconds cache timeout
+	private heartbeatInterval: NodeJS.Timeout | null = null;
+	private heartbeatDelay = 30000; // 30 seconds
 
 	constructor() {
+		console.log("🔹 SurrealWebSocketClient constructor called");
 		if (!surrealConfig.url) {
+			console.error("🔸 SURREAL_URL not configured");
 			throw new Error("SURREAL_URL not configured");
 		}
 
@@ -33,6 +41,7 @@ export class SurrealWebSocketClient {
 
 		// Convert HTTP URL to WebSocket RPC URL
 		this.wsUrl = this.convertToWebSocketUrl(surrealConfig.url);
+		console.log("🔹 WebSocket client initialized with URL:", this.wsUrl);
 	}
 
 	private convertToWebSocketUrl(url: string): string {
@@ -64,19 +73,19 @@ export class SurrealWebSocketClient {
 
 	async connect(): Promise<void> {
 		if (this.isConnected && this.ws?.readyState === WebSocket.OPEN) {
+			console.log("🔹 WebSocket already connected");
 			return;
 		}
 
+
 		return new Promise((resolve, reject) => {
-			console.log("🔹 Connecting to SurrealDB WebSocket...");
-			console.log("🔹 URL:", this.wsUrl);
-			console.log("🔹 Namespace:", this.namespace);
-			console.log("🔹 Database:", this.database);
+			console.log("🔹 Creating WebSocket connection...");
 
 			if (this.wsUrl) {
 				this.ws = new WebSocket(this.wsUrl);
 			} else {
-				throw new Error("SURREAL_URL not configured");
+				reject(new Error("SURREAL_URL not configured"));
+				return;
 			}
 
 			if (this.ws) {
@@ -106,6 +115,7 @@ export class SurrealWebSocketClient {
 
 						this.isConnected = true;
 						this.reconnectAttempts = 0;
+						this.startHeartbeat();
 						console.log("🔹 Connected to SurrealDB WebSocket successfully");
 						resolve();
 					} catch (error) {
@@ -130,22 +140,14 @@ export class SurrealWebSocketClient {
 						event.reason,
 					);
 					this.isConnected = false;
+					this.stopHeartbeat();
 
 					// Attempt reconnection if not a clean close
 					if (
 						event.code !== 1000 &&
 						this.reconnectAttempts < this.maxReconnectAttempts
 					) {
-						this.reconnectAttempts++;
-						const delay =
-							this.reconnectDelay * 2 ** (this.reconnectAttempts - 1);
-						console.log(
-							`🔹 Attempting to reconnect in ${delay}ms (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`,
-						);
-
-						setTimeout(() => {
-							this.connect().catch(console.error);
-						}, delay);
+						this.scheduleReconnect();
 					}
 				};
 
@@ -220,38 +222,77 @@ export class SurrealWebSocketClient {
 
 		return new Promise((resolve, reject) => {
 			const timeout = setTimeout(() => {
+				console.error("🔸 Request timeout for message:", message.id);
 				reject(new Error("Request timeout"));
-			}, 30000); // Increased timeout to 30 seconds
+			}, 10000); // Reduced timeout to 10 seconds
 
-			const originalOnMessage = this.ws?.onmessage || null;
-			if (this.ws) {
-				this.ws.onmessage = (event) => {
-					try {
-						const data = JSON.parse(event.data);
-						console.log("🔹 WebSocket response:", data);
+			// Store the original message handler
+			const originalHandler = this.ws?.onmessage;
 
-						if (data.id === message.id) {
-							clearTimeout(timeout);
-							if (this.ws) {
-								this.ws.onmessage = originalOnMessage;
-							}
+			// Create a temporary message handler that handles both responses and live queries
+			const tempHandler = (event: MessageEvent) => {
+				try {
+					const data = JSON.parse(event.data);
+					console.log("🔹 WebSocket response:", data);
 
-							if (data.error) {
-								console.error("🔸 WebSocket error response:", data.error);
-								reject(new Error(data.error.message || "Unknown error"));
-							} else {
-								console.log("🔹 WebSocket success response:", data.result);
-								resolve(data.result);
-							}
+					// Handle live query notifications
+					if (data.method === "notify" && Array.isArray(data.params)) {
+						const [queryId, result] = data.params;
+						console.log("🔹 Notify event for query:", queryId);
+						console.log(
+							"🔹 Registered callbacks:",
+							Array.from(this.liveQueryCallbacks.keys()),
+						);
+						const callback = this.liveQueryCallbacks.get(queryId as string);
+
+						if (callback) {
+							console.log("🔹 Callback found, executing...");
+							// Transform SurrealDB notification to our LiveQueryEvent format
+							const liveQueryEvent: LiveQueryEvent = {
+								action:
+									((result as Record<string, unknown>)?.action as
+										| "CREATE"
+										| "UPDATE"
+										| "DELETE") || "UPDATE",
+								result: (result as Record<string, unknown>)?.result || result,
+							};
+
+							callback(liveQueryEvent);
+							console.log("🔹 Callback executed successfully");
+						} else {
+							console.log("🔸 No callback registered for query:", queryId);
 						}
-					} catch (error) {
-						clearTimeout(timeout);
-						if (this.ws) {
-							this.ws.onmessage = originalOnMessage;
-						}
-						reject(error);
 					}
-				};
+
+					// Handle direct responses
+					if (data.id === message.id) {
+						clearTimeout(timeout);
+						// Restore the original handler
+						if (this.ws) {
+							this.ws.onmessage = originalHandler;
+						}
+
+						if (data.error) {
+							console.error("🔸 WebSocket error response:", data.error);
+							reject(new Error(data.error.message || "Unknown error"));
+						} else {
+							console.log("🔹 WebSocket success response:", data.result);
+							resolve(data.result);
+						}
+					}
+				} catch (error) {
+					console.error("🔸 Error parsing WebSocket response:", error);
+					clearTimeout(timeout);
+					if (this.ws) {
+						this.ws.onmessage = originalHandler;
+					}
+					reject(error);
+				}
+			};
+
+			// Replace the message handler temporarily
+			if (this.ws) {
+				this.ws.onmessage = tempHandler;
 			}
 
 			console.log("🔹 Sending WebSocket message:", message);
@@ -262,12 +303,23 @@ export class SurrealWebSocketClient {
 	}
 
 	private handleMessage(data: Record<string, unknown>): void {
+		console.log(
+			"🔹 WebSocket message received:",
+			JSON.stringify(data).substring(0, 200),
+		);
+
 		// Handle live query notifications
 		if (data.method === "notify" && Array.isArray(data.params)) {
 			const [queryId, result] = data.params;
+			console.log("🔹 Notify event for query:", queryId);
+			console.log(
+				"🔹 Registered callbacks:",
+				Array.from(this.liveQueryCallbacks.keys()),
+			);
 			const callback = this.liveQueryCallbacks.get(queryId as string);
 
 			if (callback) {
+				console.log("🔹 Callback found, executing...");
 				// Transform SurrealDB notification to our LiveQueryEvent format
 				const liveQueryEvent: LiveQueryEvent = {
 					action:
@@ -279,6 +331,9 @@ export class SurrealWebSocketClient {
 				};
 
 				callback(liveQueryEvent);
+				console.log("🔹 Callback executed successfully");
+			} else {
+				console.log("🔸 No callback registered for query:", queryId);
 			}
 		}
 	}
@@ -287,6 +342,7 @@ export class SurrealWebSocketClient {
 		query: string,
 		params: Record<string, unknown> = {},
 	): Promise<string> {
+		console.log("🔹 Creating live query:", query, params);
 		await this.connect();
 
 		const queryId = `live_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
@@ -297,7 +353,9 @@ export class SurrealWebSocketClient {
 			params: [query, params],
 		};
 
+		console.log("🔹 Sending live query message:", message);
 		await this.sendMessage(message);
+		console.log("🔹 Live query created with ID:", queryId);
 		return queryId;
 	}
 
@@ -324,13 +382,52 @@ export class SurrealWebSocketClient {
 		this.liveQueryCallbacks.delete(queryId);
 	}
 
+	private scheduleReconnect(): void {
+		if (this.reconnectTimer) {
+			clearTimeout(this.reconnectTimer);
+		}
+
+		this.reconnectAttempts++;
+		const delay = this.reconnectDelay * 2 ** (this.reconnectAttempts - 1);
+		console.log(
+			`🔹 Attempting to reconnect in ${delay}ms (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`,
+		);
+
+		this.reconnectTimer = setTimeout(() => {
+			this.connect().catch(console.error);
+		}, delay);
+	}
+
+	private startHeartbeat(): void {
+		this.stopHeartbeat();
+		this.heartbeatInterval = setInterval(() => {
+			if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+				this.ws.ping?.() || this.ws.send(JSON.stringify({ method: "ping" }));
+			}
+		}, this.heartbeatDelay);
+	}
+
+	private stopHeartbeat(): void {
+		if (this.heartbeatInterval) {
+			clearInterval(this.heartbeatInterval);
+			this.heartbeatInterval = null;
+		}
+	}
+
 	async close(): Promise<void> {
+		if (this.reconnectTimer) {
+			clearTimeout(this.reconnectTimer);
+			this.reconnectTimer = null;
+		}
+		this.stopHeartbeat();
+
 		if (this.ws) {
 			this.ws.close(1000, "Client closing");
 			this.ws = null;
 		}
 		this.isConnected = false;
 		this.liveQueryCallbacks.clear();
+		this.queryResultCache.clear();
 		console.log("🔹 SurrealDB WebSocket client closed");
 	}
 }
