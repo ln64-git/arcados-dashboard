@@ -1,10 +1,10 @@
 "use client";
 
-import { Users } from "lucide-react";
+import { Mic, MicOff, Users, Video, Volume2, VolumeX } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { useSurrealLiveQuery } from "@/hooks/useSurrealLiveQuery";
 import { DurationTicker } from "./duration-ticker";
 
 interface ChannelMember {
@@ -15,6 +15,13 @@ interface ChannelMember {
 	discriminator: string;
 	joinedAt?: string | null;
 	durationMs?: number;
+	selfMute?: boolean;
+	selfDeaf?: boolean;
+	serverMute?: boolean;
+	serverDeaf?: boolean;
+	streaming?: boolean;
+	selfVideo?: boolean;
+	sessionId?: string;
 }
 
 interface LiveChannelMembersProps {
@@ -28,125 +35,102 @@ export function LiveChannelMembers({
 }: LiveChannelMembersProps) {
 	const [members, setMembers] = useState<ChannelMember[]>(initialMembers);
 	const [isConnected, setIsConnected] = useState(false);
-
-	const {
-		subscribeToVoiceSessions,
-		isConnected: sseConnected,
-		error,
-	} = useSurrealLiveQuery({
-		onVoiceSessionUpdate: (event) => {
-			console.log("🔹 Voice session update for channel:", channelId, event);
-
-			const sessionData = event.result as any;
-
-			// Only process updates for this channel
-			if (sessionData.channelId !== channelId) {
-				return;
-			}
-
-			setMembers((prevMembers) => {
-				if (event.action === "CREATE") {
-					// User joined the channel
-					const newMember: ChannelMember = {
-						id: sessionData.userId,
-						username: sessionData.username || "Unknown",
-						displayName:
-							sessionData.displayName || sessionData.username || "Unknown",
-						avatar: sessionData.avatar || null,
-						discriminator: sessionData.discriminator || "0000",
-						joinedAt: sessionData.joinedAt,
-						durationMs: 0,
-					};
-
-					// Check if member already exists (avoid duplicates)
-					const exists = prevMembers.some(
-						(member) => member.id === newMember.id,
-					);
-					if (!exists) {
-						return [...prevMembers, newMember];
-					}
-				} else if (event.action === "DELETE") {
-					// User left the channel
-					return prevMembers.filter(
-						(member) => member.id !== sessionData.userId,
-					);
-				} else if (event.action === "UPDATE") {
-					// User data updated (e.g., duration)
-					return prevMembers.map((member) =>
-						member.id === sessionData.userId
-							? { ...member, joinedAt: sessionData.joinedAt }
-							: member,
-					);
-				}
-
-				return prevMembers;
-			});
-		},
-		onConnect: () => {
-			console.log(
-				"🔹 Connected to voice session updates for channel:",
-				channelId,
-			);
-			setIsConnected(true);
-		},
-		onDisconnect: () => {
-			console.log(
-				"🔸 Disconnected from voice session updates for channel:",
-				channelId,
-			);
-			setIsConnected(false);
-		},
-		onError: (error) => {
-			console.error("🔸 Error in voice session subscription:", error);
-		},
-	});
+	const [error, setError] = useState<string | null>(null);
+	const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
 
 	useEffect(() => {
-		if (!sseConnected) {
-			console.warn(
-				"🔸 Not connected to SSE, skipping voice session subscription",
-			);
-			return;
-		}
+		if (typeof window === "undefined") return;
 
-		let subscriptionId: string | null = null;
+		console.log("🔹 Setting up polling for channel members...");
 
-		const setupSubscription = async () => {
+		const baseUrl = window.location.origin;
+		let intervalId: NodeJS.Timeout;
+
+		const fetchMembers = async () => {
 			try {
-				// Subscribe to voice sessions for this specific channel
-				subscriptionId = await subscribeToVoiceSessions(channelId, () => {
-					// Callback is handled by onVoiceSessionUpdate
-				});
+				const response = await fetch(
+					`${baseUrl}/api/channels/${channelId}/members`,
+				);
+				if (!response.ok) {
+					throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+				}
 
-				console.log(`🔹 Subscribed to voice sessions for channel ${channelId}`);
-			} catch (error) {
-				console.error("🔸 Error setting up voice session subscription:", error);
+				const result = await response.json();
+				console.log(
+					"🔹 Channel members updated:",
+					result.members.length,
+					"members",
+				);
+				setMembers(result.members);
+				setLastUpdate(new Date());
+				setIsConnected(true);
+				setError(null);
+			} catch (err) {
+				console.error("🔸 Error fetching channel members:", err);
+				setError(err instanceof Error ? err.message : "Unknown error");
+				setIsConnected(false);
 			}
 		};
 
-		setupSubscription();
+		// Initial fetch
+		fetchMembers();
+
+		// Set up polling (every 2 seconds for channel members)
+		intervalId = setInterval(fetchMembers, 2000);
 
 		return () => {
-			// Cleanup subscription
-			if (subscriptionId) {
-				console.log(
-					`🔹 Cleaning up voice session subscription for channel ${channelId}`,
-				);
+			console.log("🔹 Cleaning up channel members polling");
+			if (intervalId) {
+				clearInterval(intervalId);
 			}
+			setIsConnected(false);
 		};
-	}, [channelId, sseConnected, subscribeToVoiceSessions]);
+	}, [channelId]);
+
+	const getStatusIcons = (member: ChannelMember) => {
+		const icons = [];
+
+		if (member.streaming) {
+			icons.push(<Video key="streaming" className="h-3 w-3 text-purple-500" />);
+		}
+
+		if (member.selfMute || member.serverMute) {
+			icons.push(<MicOff key="mute" className="h-3 w-3 text-red-500" />);
+		} else {
+			icons.push(<Mic key="unmute" className="h-3 w-3 text-green-500" />);
+		}
+
+		if (member.selfDeaf || member.serverDeaf) {
+			icons.push(<VolumeX key="deaf" className="h-3 w-3 text-red-500" />);
+		} else {
+			icons.push(<Volume2 key="undeaf" className="h-3 w-3 text-green-500" />);
+		}
+
+		return icons;
+	};
 
 	return (
 		<Card className="border-0 shadow-none">
 			<CardHeader>
 				<CardTitle className="flex items-center gap-2">
 					<Users className="h-5 w-5" />
-					Current Members
+					Current Members ({members.length})
 					{isConnected && (
-						<span className="text-xs text-green-600 ml-2">🟢 Live</span>
+						<Badge variant="outline" className="text-xs text-green-600">
+							🟢 Live
+						</Badge>
 					)}
-					{error && <span className="text-xs text-red-600 ml-2">🔴 Error</span>}
+					{error && (
+						<Badge variant="destructive" className="text-xs">
+							🔴 Error
+						</Badge>
+					)}
 				</CardTitle>
+				{lastUpdate && (
+					<p className="text-xs text-muted-foreground">
+						Last updated: {lastUpdate.toLocaleTimeString()}
+					</p>
+				)}
 			</CardHeader>
 			<CardContent>
 				{members.length === 0 ? (
@@ -159,8 +143,11 @@ export function LiveChannelMembers({
 				) : (
 					<div className="space-y-3">
 						{members.map((member) => (
-							<div key={member.id} className="flex items-center gap-3">
-								<Avatar className="h-8 w-8">
+							<div
+								key={member.id}
+								className="flex items-center gap-3 p-2 rounded-lg border"
+							>
+								<Avatar className="h-10 w-10">
 									<AvatarImage
 										src={
 											member.avatar
@@ -174,15 +161,25 @@ export function LiveChannelMembers({
 									</AvatarFallback>
 								</Avatar>
 								<div className="flex-1 min-w-0">
-									<p className="text-sm font-medium truncate">
-										{member.displayName}
-									</p>
+									<div className="flex items-center gap-2">
+										<p className="text-sm font-medium truncate">
+											{member.displayName}
+										</p>
+										<div className="flex items-center gap-1">
+											{getStatusIcons(member)}
+										</div>
+									</div>
 									<div className="flex items-center gap-2">
 										<p className="text-xs text-muted-foreground truncate">
 											@{member.username}
 										</p>
 										<DurationTicker start={member.joinedAt} />
 									</div>
+									{member.sessionId && (
+										<p className="text-xs text-muted-foreground">
+											Session: {member.sessionId.slice(0, 8)}...
+										</p>
+									)}
 								</div>
 							</div>
 						))}

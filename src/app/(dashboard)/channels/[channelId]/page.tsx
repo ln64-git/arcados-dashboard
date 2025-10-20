@@ -1,11 +1,9 @@
 import { Volume2 } from "lucide-react";
 import { unstable_noStore as noStore } from "next/cache";
 import { Badge } from "@/components/ui/badge";
-import { executeQuery, executeQueryOne } from "@/lib/surreal/client";
-import type { Channel, User, VoiceChannelSession } from "@/lib/surreal/types";
+import { SurrealWebSocketClient } from "@/lib/surreal/SurrealWebSocketClient";
 import type { DiscordChannel } from "../../channels-table";
 // eslint-disable-next-line import/no-unresolved
-import { DurationTicker } from "./duration-ticker";
 import { LiveChannelMembers } from "./live-channel-members";
 
 export const dynamic = "force-dynamic";
@@ -18,6 +16,13 @@ interface ChannelMember {
 	discriminator: string;
 	joinedAt?: string | null;
 	durationMs?: number;
+	selfMute?: boolean;
+	selfDeaf?: boolean;
+	serverMute?: boolean;
+	serverDeaf?: boolean;
+	streaming?: boolean;
+	selfVideo?: boolean;
+	sessionId?: string;
 }
 
 async function getChannelDetails(channelId: string): Promise<{
@@ -29,33 +34,57 @@ async function getChannelDetails(channelId: string): Promise<{
 		console.log("Fetching channel details from SurrealDB:", channelId);
 
 		// Get guild_id from environment or use default
-		const guildId = process.env.GUILD_ID || "default-guild";
+		const guildId = process.env.GUILD_ID || "1254694808228986912";
 
-		// Fetch channel directly from SurrealDB
-		const dbChannel = await executeQueryOne<Channel>(
-			`SELECT * FROM channels WHERE discord_id = $discord_id AND guild_id = $guild_id`,
-			{ discord_id: channelId, guild_id: guildId },
-		);
+		// Create channel mapping from Discord channel IDs to names
+		const channelMapping: Record<string, { name: string; position: number }> = {
+			"1427152903260344350": { name: "Cantina", position: 1 },
+			"1428282734173880440": { name: "New Channel", position: 2 },
+			"1423746690342588516": { name: "afk", position: 3 },
+			"1287323426465513512": { name: "Dojo", position: 0 },
+		};
 
-		if (!dbChannel) {
+		const channelInfo = channelMapping[channelId];
+		if (!channelInfo) {
 			return {
 				channel: null,
 				error: "Channel not found",
 			};
 		}
 
-		// Map database fields to DiscordChannel interface format
+		// Get current voice states to calculate real-time member counts
+		const client = new SurrealWebSocketClient();
+		await client.connect();
+
+		const voiceStates = await client.query(
+			`SELECT channel_id, user_id FROM voice_states WHERE guild_id = $guildId AND channel_id IS NOT NONE`,
+			{ guildId },
+		);
+
+		await client.close();
+
+		// Extract the actual data from the nested array structure
+		const actualVoiceStates = Array.isArray(voiceStates) && voiceStates.length > 0 && Array.isArray(voiceStates[0])
+			? voiceStates[0]
+			: voiceStates;
+
+		// Count members for this specific channel
+		const memberCount = Array.isArray(actualVoiceStates) 
+			? actualVoiceStates.filter((vs: { channel_id: string }) => vs.channel_id === channelId).length
+			: 0;
+
+		// Map to DiscordChannel interface format
 		const channel: DiscordChannel = {
-			id: dbChannel.discordId,
-			name: dbChannel.channelName,
-			status: dbChannel.status ?? null,
+			id: channelId,
+			name: channelInfo.name,
+			status: "Active",
 			type: 2, // Voice channel type
-			position: dbChannel.position, // Use actual position from DB
-			userLimit: 0, // Default unlimited since not in DB
-			bitrate: 64000, // Default bitrate since not in DB
-			parentId: null, // Default no parent since not in DB
-			permissionOverwrites: [], // Default empty since not in DB
-			memberCount: dbChannel.memberCount || 0, // Use actual member count from DB
+			position: channelInfo.position,
+			userLimit: 0, // Default unlimited
+			bitrate: 64000, // Default bitrate
+			parentId: null, // Default no parent
+			permissionOverwrites: [], // Default empty
+			memberCount: memberCount, // Real-time count from voice states
 		};
 
 		return {
@@ -79,77 +108,49 @@ async function getChannelMembers(channelId: string): Promise<{
 	try {
 		console.log("Fetching members for channel:", channelId);
 
-		// Get guild_id from environment or use default
-		const guildId = process.env.GUILD_ID || "default-guild";
+		const guildId = process.env.GUILD_ID || "1254694808228986912";
+		const client = new SurrealWebSocketClient();
+		await client.connect();
 
-		// Get channel from SurrealDB
-		const channel = await executeQueryOne<Channel>(
-			`SELECT * FROM channels WHERE discord_id = $discord_id AND guild_id = $guild_id`,
-			{ discord_id: channelId, guild_id: guildId },
+		// Get active voice states for this channel
+		const voiceStates = await client.query(
+			`SELECT * FROM voice_states WHERE channel_id = $channelId AND guild_id = $guildId`,
+			{ channelId, guildId }
 		);
 
-		if (!channel) {
-			return {
-				members: [],
-				totalMembers: 0,
-				error: "Channel not found",
-			};
-		}
+		await client.close();
 
-		// Get active voice sessions for this channel
-		const activeSessions = await executeQuery<VoiceChannelSession>(
-			`SELECT * FROM voice_channel_sessions WHERE channel_id = $channel_id AND is_active = true`,
-			{ channel_id: channelId },
-		);
+		// Extract the actual data from the nested array structure
+		const actualVoiceStates = Array.isArray(voiceStates) && voiceStates.length > 0 && Array.isArray(voiceStates[0])
+			? voiceStates[0]
+			: voiceStates;
 
-		if (activeSessions.length === 0) {
-			return {
-				members: [],
-				totalMembers: 0,
-			};
-		}
-
-		// Get user data for active members
-		const activeUserIds = activeSessions.map((session) => session.userId);
-		const users = await executeQuery<User>(
-			`SELECT * FROM users WHERE discord_id IN $user_ids AND guild_id = $guild_id`,
-			{ user_ids: activeUserIds, guild_id: guildId },
-		);
-
-		const sessionsByUser = new Map<string, VoiceChannelSession>();
-		for (const session of activeSessions) {
-			sessionsByUser.set(session.userId, session);
-		}
-
-		const now = Date.now();
-		const membersWithDurations = users.map((user) => {
-			const session = sessionsByUser.get(user.discordId);
-			const joinedAt = session?.joinedAt.toISOString() || null;
-			const durationMs = joinedAt
-				? Math.max(0, now - new Date(joinedAt).getTime())
-				: 0;
-
-			return {
-				id: user.discordId,
-				username: user.username,
-				displayName: user.nickname || user.displayName,
-				avatar: user.avatar || null,
-				discriminator: user.discriminator,
-				joinedAt,
-				durationMs,
-			};
-		});
+		// Map voice states to member data
+		const members: ChannelMember[] = Array.isArray(actualVoiceStates) ? actualVoiceStates.map((vs: { user_id: string; joined_at?: string; created_at?: string; self_mute?: boolean; self_deaf?: boolean; server_mute?: boolean; server_deaf?: boolean; streaming?: boolean; self_video?: boolean; session_id?: string }) => ({
+			id: vs.user_id,
+			username: `user_${vs.user_id.slice(-4)}`, // Fallback username
+			displayName: `User ${vs.user_id.slice(-4)}`, // Fallback display name
+			avatar: null,
+			discriminator: "0000",
+			joinedAt: vs.joined_at || vs.created_at,
+			durationMs: vs.joined_at ? Date.now() - new Date(vs.joined_at).getTime() : 0,
+			selfMute: vs.self_mute || false,
+			selfDeaf: vs.self_deaf || false,
+			serverMute: vs.server_mute || false,
+			serverDeaf: vs.server_deaf || false,
+			streaming: vs.streaming || false,
+			selfVideo: vs.self_video || false,
+			sessionId: vs.session_id,
+		})) : [];
 
 		// Sort by longest in channel
-		membersWithDurations.sort(
-			(a, b) => (b.durationMs ?? 0) - (a.durationMs ?? 0),
-		);
+		members.sort((a, b) => (b.durationMs ?? 0) - (a.durationMs ?? 0));
 
-		console.log("Found active members:", membersWithDurations.length);
+		console.log("Found active members:", members.length);
 
 		return {
-			members: membersWithDurations,
-			totalMembers: membersWithDurations.length,
+			members,
+			totalMembers: members.length,
 		};
 	} catch (error) {
 		console.error("Error fetching channel members:", error);
