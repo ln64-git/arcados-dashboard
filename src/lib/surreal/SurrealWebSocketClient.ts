@@ -20,14 +20,14 @@ export class SurrealWebSocketClient {
 	private maxReconnectAttempts = 5;
 	private reconnectDelay = 1000;
 	private reconnectTimer: NodeJS.Timeout | null = null;
-	private queryResultCache: Map<string, { data: unknown; timestamp: number }> =
-		new Map();
-	private cacheTimeout = 5000; // 5 seconds cache timeout
-	private heartbeatInterval: NodeJS.Timeout | null = null;
-	private heartbeatDelay = 30000; // 30 seconds
+	// private queryResultCache: Map<string, { data: unknown; timestamp: number }> =
+	// 	new Map();
+	// private cacheTimeout = 5000; // 5 seconds cache timeout
+	// private heartbeatInterval: NodeJS.Timeout | null = null;
+	// private heartbeatDelay = 30000; // 30 seconds
 
 	constructor() {
-		console.log("🔹 SurrealWebSocketClient constructor called");
+		// console.log("🔹 SurrealWebSocketClient constructor called");
 		if (!surrealConfig.url) {
 			console.error("🔸 SURREAL_URL not configured");
 			throw new Error("SURREAL_URL not configured");
@@ -41,7 +41,7 @@ export class SurrealWebSocketClient {
 
 		// Convert HTTP URL to WebSocket RPC URL
 		this.wsUrl = this.convertToWebSocketUrl(surrealConfig.url);
-		console.log("🔹 WebSocket client initialized with URL:", this.wsUrl);
+		// console.log("🔹 WebSocket client initialized with URL:", this.wsUrl);
 	}
 
 	private convertToWebSocketUrl(url: string): string {
@@ -73,13 +73,12 @@ export class SurrealWebSocketClient {
 
 	async connect(): Promise<void> {
 		if (this.isConnected && this.ws?.readyState === WebSocket.OPEN) {
-			console.log("🔹 WebSocket already connected");
+			// console.log("🔹 WebSocket already connected");
 			return;
 		}
 
-
 		return new Promise((resolve, reject) => {
-			console.log("🔹 Creating WebSocket connection...");
+			// console.log("🔹 Creating WebSocket connection...");
 
 			if (this.wsUrl) {
 				this.ws = new WebSocket(this.wsUrl);
@@ -90,33 +89,33 @@ export class SurrealWebSocketClient {
 
 			if (this.ws) {
 				this.ws.onopen = async () => {
-					console.log("🔹 WebSocket connection opened");
+					// console.log("🔹 WebSocket connection opened");
 
 					try {
 						// Wait a brief moment to ensure WebSocket is fully ready
 						await new Promise((resolve) => setTimeout(resolve, 200));
 
-						console.log("🔹 Setting namespace and database...");
+						// console.log("🔹 Setting namespace and database...");
 						// Set namespace and database first
 						await this.use(this.namespace, this.database);
 						console.log("🔹 Namespace and database set successfully");
 
 						// Authenticate
 						if (this.token) {
-							console.log("🔹 Authenticating with token...");
+							// console.log("🔹 Authenticating with token...");
 							await this.authenticate(this.token);
 						} else if (this.username && this.password) {
-							console.log("🔹 Authenticating with username/password...");
+							// console.log("🔹 Authenticating with username/password...");
 							await this.signin(this.username, this.password);
 						} else {
 							throw new Error("No authentication credentials provided");
 						}
-						console.log("🔹 Authentication successful");
+						// console.log("🔹 Authentication successful");
 
 						this.isConnected = true;
 						this.reconnectAttempts = 0;
 						this.startHeartbeat();
-						console.log("🔹 Connected to SurrealDB WebSocket successfully");
+						// console.log("🔹 Connected to SurrealDB WebSocket successfully");
 						resolve();
 					} catch (error) {
 						console.error("🔸 Authentication failed:", error);
@@ -160,7 +159,7 @@ export class SurrealWebSocketClient {
 	}
 
 	private async use(namespace: string, database: string): Promise<void> {
-		console.log("🔹 Setting namespace and database");
+		// console.log("🔹 Setting namespace and database");
 
 		const message = {
 			id: "use",
@@ -173,7 +172,7 @@ export class SurrealWebSocketClient {
 
 	private async authenticate(token: string): Promise<void> {
 		this.token = token;
-		console.log("🔹 Using token-based authentication");
+		// console.log("🔹 Using token-based authentication");
 
 		const message = {
 			id: "auth",
@@ -187,7 +186,7 @@ export class SurrealWebSocketClient {
 	private async signin(username: string, password: string): Promise<void> {
 		this.username = username;
 		this.password = password;
-		console.log("🔹 Using username/password authentication");
+		// console.log("🔹 Using username/password authentication");
 
 		const message = {
 			id: "signin",
@@ -233,20 +232,20 @@ export class SurrealWebSocketClient {
 			const tempHandler = (event: MessageEvent) => {
 				try {
 					const data = JSON.parse(event.data);
-					console.log("🔹 WebSocket response:", data);
+					// console.log("🔹 WebSocket response:", data);
 
 					// Handle live query notifications
 					if (data.method === "notify" && Array.isArray(data.params)) {
 						const [queryId, result] = data.params;
-						console.log("🔹 Notify event for query:", queryId);
-						console.log(
-							"🔹 Registered callbacks:",
-							Array.from(this.liveQueryCallbacks.keys()),
-						);
+						// console.log("🔹 Notify event for query:", queryId);
+						// console.log(
+						// 	"🔹 Registered callbacks:",
+						// 	Array.from(this.liveQueryCallbacks.keys()),
+						// );
 						const callback = this.liveQueryCallbacks.get(queryId as string);
 
 						if (callback) {
-							console.log("🔹 Callback found, executing...");
+							// console.log("🔹 Callback found, executing...");
 							// Transform SurrealDB notification to our LiveQueryEvent format
 							const liveQueryEvent: LiveQueryEvent = {
 								action:
@@ -258,7 +257,7 @@ export class SurrealWebSocketClient {
 							};
 
 							callback(liveQueryEvent);
-							console.log("🔹 Callback executed successfully");
+							// console.log("🔹 Callback executed successfully");
 						} else {
 							console.log("🔸 No callback registered for query:", queryId);
 						}
@@ -269,14 +268,16 @@ export class SurrealWebSocketClient {
 						clearTimeout(timeout);
 						// Restore the original handler
 						if (this.ws) {
-							this.ws.onmessage = originalHandler;
+							this.ws.onmessage = originalHandler as
+								| ((this: WebSocket, ev: MessageEvent) => void)
+								| null;
 						}
 
 						if (data.error) {
 							console.error("🔸 WebSocket error response:", data.error);
 							reject(new Error(data.error.message || "Unknown error"));
 						} else {
-							console.log("🔹 WebSocket success response:", data.result);
+							// console.log("🔹 WebSocket success response:", data.result);
 							resolve(data.result);
 						}
 					}
@@ -284,7 +285,9 @@ export class SurrealWebSocketClient {
 					console.error("🔸 Error parsing WebSocket response:", error);
 					clearTimeout(timeout);
 					if (this.ws) {
-						this.ws.onmessage = originalHandler;
+						this.ws.onmessage = originalHandler as
+							| ((this: WebSocket, ev: MessageEvent) => void)
+							| null;
 					}
 					reject(error);
 				}
@@ -292,10 +295,12 @@ export class SurrealWebSocketClient {
 
 			// Replace the message handler temporarily
 			if (this.ws) {
-				this.ws.onmessage = tempHandler;
+				this.ws.onmessage = tempHandler as
+					| ((this: WebSocket, ev: MessageEvent) => void)
+					| null;
 			}
 
-			console.log("🔹 Sending WebSocket message:", message);
+			// console.log("🔹 Sending WebSocket message:", message);
 			if (this.ws) {
 				this.ws.send(JSON.stringify(message));
 			}
@@ -338,11 +343,39 @@ export class SurrealWebSocketClient {
 		}
 	}
 
+	async query(
+		query: string,
+		params: Record<string, unknown> = {},
+	): Promise<unknown> {
+		// console.log("🔹 Executing query:", query, params);
+		await this.connect();
+
+		const messageId = `query_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+		const message = {
+			id: messageId,
+			method: "query",
+			params: [query, params],
+		};
+
+		console.log("🔹 Sending query message:", message);
+		const result = await this.sendMessage(message);
+		// console.log("🔹 Query result:", result);
+
+		// Extract the actual data from SurrealDB response
+		if (Array.isArray(result)) {
+			const data = result.map((r) => r.result).filter((r) => r !== null);
+			return data;
+		}
+
+		return result;
+	}
+
 	async live(
 		query: string,
 		params: Record<string, unknown> = {},
 	): Promise<string> {
-		console.log("🔹 Creating live query:", query, params);
+		// console.log("🔹 Creating live query:", query, params);
 		await this.connect();
 
 		const queryId = `live_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
@@ -353,9 +386,9 @@ export class SurrealWebSocketClient {
 			params: [query, params],
 		};
 
-		console.log("🔹 Sending live query message:", message);
+		// console.log("🔹 Sending live query message:", message);
 		await this.sendMessage(message);
-		console.log("🔹 Live query created with ID:", queryId);
+		// console.log("🔹 Live query created with ID:", queryId);
 		return queryId;
 	}
 
@@ -400,18 +433,20 @@ export class SurrealWebSocketClient {
 
 	private startHeartbeat(): void {
 		this.stopHeartbeat();
-		this.heartbeatInterval = setInterval(() => {
-			if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-				this.ws.ping?.() || this.ws.send(JSON.stringify({ method: "ping" }));
-			}
-		}, this.heartbeatDelay);
+		// Heartbeat disabled to avoid WebSocket ping issues
+		// this.heartbeatInterval = setInterval(() => {
+		// 	if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+		// 		this.ws.ping?.() || this.ws.send(JSON.stringify({ method: "ping" }));
+		// 	}
+		// }, this.heartbeatDelay);
 	}
 
 	private stopHeartbeat(): void {
-		if (this.heartbeatInterval) {
-			clearInterval(this.heartbeatInterval);
-			this.heartbeatInterval = null;
-		}
+		// Heartbeat disabled
+		// if (this.heartbeatInterval) {
+		// 	clearInterval(this.heartbeatInterval);
+		// 	this.heartbeatInterval = null;
+		// }
 	}
 
 	async close(): Promise<void> {
@@ -427,7 +462,7 @@ export class SurrealWebSocketClient {
 		}
 		this.isConnected = false;
 		this.liveQueryCallbacks.clear();
-		this.queryResultCache.clear();
-		console.log("🔹 SurrealDB WebSocket client closed");
+		// this.queryResultCache.clear();
+		// console.log("🔹 SurrealDB WebSocket client closed");
 	}
 }

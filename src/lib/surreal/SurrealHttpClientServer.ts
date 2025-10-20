@@ -58,13 +58,12 @@ export class SurrealHttpClientServer {
 		console.log("🔹 Has Token:", !!this.token);
 
 		try {
-			// First, set the namespace and database
-			console.log("🔹 Setting namespace and database...");
-			await this.executeQuery(`USE NAMESPACE ${this.namespace};`);
-			await this.executeQuery(`USE DATABASE ${this.database};`);
+			// Test connection with a simple query that includes namespace/database
+			const testQuery = `USE NAMESPACE ${this.namespace}; USE DATABASE ${this.database}; INFO FOR DB;`;
+			console.log("🔹 Test query:", testQuery);
 
-			// Test connection with a simple query
-			await this.executeQuery("SELECT * FROM users LIMIT 1");
+			const result = await this.executeQuery(testQuery);
+			console.log("🔹 Connection test result:", result);
 
 			this.isConnected = true;
 			this.connectionRetries = 0;
@@ -154,6 +153,7 @@ export class SurrealHttpClientServer {
 			}
 
 			const result: SurrealHttpResponse<T> = await response.json();
+			console.log("🔹 Raw HTTP response:", JSON.stringify(result, null, 2));
 
 			// Handle SurrealDB error responses
 			if (Array.isArray(result)) {
@@ -161,8 +161,10 @@ export class SurrealHttpClientServer {
 				if (firstResult && firstResult.status === "ERR") {
 					throw new Error(`SurrealDB Error: ${firstResult.result}`);
 				}
-				// Return the result array directly
-				return result as T[];
+				// Extract the actual data from the response array
+				const data = result.map((r) => r.result).filter((r) => r !== null);
+				console.log("🔹 Extracted data:", data);
+				return data as T[];
 			}
 
 			if (result.status === "ERR") {

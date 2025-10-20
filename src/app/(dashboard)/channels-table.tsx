@@ -70,8 +70,11 @@ export function ChannelsTable({
 						</TableRow>
 					</TableHeader>
 					<TableBody>
-						{channels.map((channel) => (
-							<Channel key={channel.id} channel={channel} />
+						{channels.map((channel, index) => (
+							<Channel 
+								key={channel.id || `fallback-${index}-${Date.now()}`} 
+								channel={channel} 
+							/>
 						))}
 					</TableBody>
 				</Table>

@@ -41,6 +41,7 @@ export function usePolling<T>({
 			onSuccess?.(result);
 		} catch (err) {
 			const errorMessage = err instanceof Error ? err.message : "Unknown error";
+			console.error("🔸 Polling fetch error:", err);
 			setError(errorMessage);
 			onError?.(err instanceof Error ? err : new Error(errorMessage));
 		} finally {
@@ -55,13 +56,16 @@ export function usePolling<T>({
 	useEffect(() => {
 		if (!enabled) return;
 
-		// Initial fetch
-		fetchData();
+		// Initial fetch with a small delay to ensure page is loaded
+		const initialTimeout = setTimeout(fetchData, 100);
 
 		// Set up polling
 		const intervalId = setInterval(fetchData, interval);
 
-		return () => clearInterval(intervalId);
+		return () => {
+			clearTimeout(initialTimeout);
+			clearInterval(intervalId);
+		};
 	}, [fetchData, interval, enabled]);
 
 	return {

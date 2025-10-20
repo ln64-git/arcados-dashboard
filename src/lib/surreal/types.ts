@@ -1,38 +1,62 @@
 // TypeScript types matching the bot's SurrealDB schema
 // Based on /home/ln64/Source/arcados-bot/src/types/database.ts
 
+// Guild Table
+export interface Guild {
+	id: string;
+	name: string;
+	ownerId: string;
+	active: boolean;
+	createdAt: Date;
+	updatedAt: Date;
+}
+
+// Action Table
+export interface Action {
+	id: string;
+	guildId: string;
+	userId: string;
+	actionType: string;
+	targetId?: string;
+	reason?: string;
+	executed: boolean;
+	executedAt?: Date;
+	createdAt: Date;
+	updatedAt: Date;
+}
+
+// User/Member Table
 export interface User {
 	id: string;
-	discordId: string;
 	guildId: string;
-	bot: boolean;
+	userId: string;
 	username: string;
 	displayName: string;
-	nickname?: string;
-	discriminator: string;
+	globalName?: string;
 	avatar?: string;
-	status: string;
-	roles: string[];
+	discriminator: string;
+	nickname?: string;
 	joinedAt: Date;
-	lastSeen: Date;
-	avatarHistory: AvatarHistory[];
-	usernameHistory: string[];
-	displayNameHistory: string[];
-	nicknameHistory: string[];
-	statusHistory: UserStatus[];
-	emoji?: string;
-	title?: string;
-	summary?: string;
-	keywords: string[];
-	notes: string[];
-	relationships: Relationship[];
-	modPreferences: ModPreferences;
-	voiceInteractions: VoiceInteraction[];
+	roles: string[];
+	profileHash: string;
+	profileHistory: object[];
+	active: boolean;
 	createdAt: Date;
 	updatedAt: Date;
 }
 
 export interface Channel {
+	id: string;
+	guildId: string;
+	name: string;
+	type: number;
+	active: boolean;
+	createdAt: Date;
+	updatedAt: Date;
+}
+
+// Legacy interface for backward compatibility
+export interface LegacyChannel {
 	id: string;
 	discordId: string;
 	guildId: string;
@@ -49,6 +73,66 @@ export interface Channel {
 	updatedAt: Date;
 }
 
+// Voice State Table - Real-time state tracking
+export interface VoiceState {
+	id: string;
+	guildId: string;
+	userId: string;
+	channelId?: string; // NONE when user leaves voice
+	selfMute: boolean;
+	selfDeaf: boolean;
+	serverMute: boolean;
+	serverDeaf: boolean;
+	streaming: boolean;
+	selfVideo: boolean;
+	suppress: boolean;
+	sessionId?: string;
+	joinedAt?: Date;
+	createdAt: Date;
+	updatedAt: Date;
+}
+
+// Voice History Table - Event logging
+export interface VoiceHistory {
+	id: string;
+	guildId: string;
+	userId: string;
+	channelId?: string;
+	eventType: string;
+	fromChannelId?: string;
+	toChannelId?: string;
+	selfMute: boolean;
+	selfDeaf: boolean;
+	serverMute: boolean;
+	serverDeaf: boolean;
+	streaming: boolean;
+	selfVideo: boolean;
+	sessionId?: string;
+	sessionDuration?: number;
+	timestamp: Date;
+	createdAt: Date;
+}
+
+// Voice Sessions Table - Session management
+export interface VoiceSession {
+	id: string;
+	guildId: string;
+	userId: string;
+	channelId: string;
+	joinedAt: Date;
+	leftAt?: Date;
+	duration: number;
+	channelsVisited: string[];
+	switchCount: number;
+	timeMuted: number;
+	timeDeafened: number;
+	timeStreaming: number;
+	active: boolean;
+	createdAt: Date;
+	updatedAt: Date;
+}
+
+// Legacy interface for backward compatibility
 export interface VoiceChannelSession {
 	id: string;
 	userId: string;
@@ -200,7 +284,7 @@ export interface LiveQueryEvent<T = unknown> {
 // SSE Event types
 export interface SSEEvent {
 	event: string;
-	data: any;
+	data: unknown;
 	timestamp: number;
 }
 
